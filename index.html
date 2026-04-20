@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>高中化学晶胞结构可视化</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <main class="app-main">
+      <section class="viewer-panel" aria-labelledby="viewer-title">
+        <div class="section-head">
+          <h2 id="viewer-title">3D 展示区</h2>
+          <p>根据当前选中的晶胞动态加载模型。</p>
+        </div>
+        <div
+          id="crystal-viewer"
+          class="viewer-canvas"
+          aria-label="晶胞三维展示区域"
+        ></div>
+      </section>
+    </main>
+
+    <aside
+      id="floating-ui"
+      class="floating-ui is-right"
+      aria-label="页面说明与控制面板"
+    >
+      <div id="floating-ui-body" class="floating-ui-body">
+        <header class="app-header">
+          <p class="eyebrow">高中化学学习与比赛展示</p>
+          <h1>晶胞结构可视化</h1>
+          <p class="subtitle">
+            当前聚焦 NaCl 型、CsCl 型、金刚石型，以及 FCC、BCC、HCP 三类代表性晶体结构的三维展示、配位说明与晶胞计数。
+          </p>
+        </header>
+
+        <section class="control-panel" aria-labelledby="control-title">
+          <div class="section-head">
+            <h2 id="control-title">控制面板</h2>
+            <p>支持晶胞切换、自动旋转、配位说明、辅助原子显示与计数说明切换。</p>
+          </div>
+
+          <section class="selector-card" aria-labelledby="selector-title">
+            <h3 id="selector-title">晶胞选择</h3>
+            <label class="control-label" for="crystal-select">选择当前晶胞</label>
+            <select
+              id="crystal-select"
+              class="control-select"
+              aria-label="晶胞选择"
+            ></select>
+            <p id="crystal-summary" class="control-hint">准备加载晶胞数据...</p>
+          </section>
+
+          <section class="selector-card" aria-labelledby="view-title">
+            <h3 id="view-title">标准视角</h3>
+            <label class="control-label" for="view-select">选择标准视角</label>
+            <select
+              id="view-select"
+              class="control-select"
+              aria-label="标准视角选择"
+            ></select>
+            <p class="control-hint">
+              “默认展示视角”会按当前晶胞加载推荐角度；锁定视角后禁用拖拽旋转，但仍保留缩放。
+            </p>
+          </section>
+
+          <div class="control-group">
+            <button id="btn-view-lock" class="control-button" type="button">
+              锁定视角
+            </button>
+            <button id="btn-auto-rotate" class="control-button" type="button">
+              自动旋转
+            </button>
+            <button id="btn-show-axes" class="control-button" type="button">
+              显示坐标轴
+            </button>
+            <button
+              id="btn-show-coordination"
+              class="control-button"
+              type="button"
+              disabled
+            >
+              显示配位
+            </button>
+            <button
+              id="btn-show-auxiliary"
+              class="control-button"
+              type="button"
+              disabled
+            >
+              显示辅助原子
+            </button>
+            <button id="btn-show-count" class="control-button" type="button" disabled>
+              显示计数
+            </button>
+          </div>
+
+          <p class="control-note">
+            “显示配位”会突出代表性中心粒子及其最近邻环境；“显示计数”会打开当前晶胞的计数规则与最终结论。
+          </p>
+        </section>
+      </div>
+
+    </aside>
+
+    <div class="panel-toolbar panel-side-toolbar is-left" aria-label="信息栏位置控制">
+      <button
+        id="btn-panel-side"
+        class="panel-toggle-button"
+        type="button"
+        aria-label="切换信息栏到左侧"
+      >
+        移到左侧
+      </button>
+    </div>
+
+    <div class="panel-toolbar panel-collapse-toolbar is-right" aria-label="信息栏展开控制">
+      <button
+        id="btn-panel-collapse"
+        class="panel-toggle-button"
+        type="button"
+        aria-controls="floating-ui-body"
+        aria-expanded="true"
+        aria-label="收起信息栏"
+      >
+        收起信息栏
+      </button>
+    </div>
+
+    <div
+      id="knowledge-stack"
+      class="knowledge-stack is-left"
+      aria-label="结构知识说明区"
+      hidden
+    >
+      <section
+        id="counting-floating"
+        class="knowledge-panel counting-panel"
+        aria-labelledby="counting-heading"
+        hidden
+      >
+        <div class="knowledge-card">
+          <h2 id="counting-heading">计数说明</h2>
+          <div id="counting-content" class="knowledge-content">
+            <p class="knowledge-empty">当前晶胞暂未提供计数说明。</p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="coordination-floating"
+        class="knowledge-panel coordination-panel"
+        aria-labelledby="coordination-heading"
+        hidden
+      >
+        <div class="knowledge-card">
+          <h2 id="coordination-heading">配位说明</h2>
+          <div id="coordination-content" class="knowledge-content">
+            <p id="coordination-summary" class="coordination-summary">
+              当前晶胞暂未提供配位说明。
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside
+      id="atom-legend-floating"
+      class="atom-legend-panel is-left"
+      aria-label="原子名称示意"
+      hidden
+    >
+      <div class="atom-legend-card">
+        <h2 id="atom-legend-heading">原子名称示意</h2>
+        <div id="atom-legend-content" class="atom-legend-content">
+          <p class="knowledge-empty">当前晶胞暂无原子示意。</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
