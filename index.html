@@ -27,6 +27,9 @@
           class="viewer-canvas"
           aria-label="晶胞三维展示区域"
         ></div>
+        <p id="atom-contribution-hint" class="atom-contribution-hint" hidden>
+          点按原子查看它对晶胞的贡献
+        </p>
       </section>
     </main>
 
@@ -40,14 +43,14 @@
           <p class="eyebrow">高中化学学习与比赛展示</p>
           <h1>晶胞结构可视化</h1>
           <p class="subtitle">
-            当前聚焦 NaCl 型、CsCl 型、金刚石型，以及 FCC、BCC、HCP 三类代表性晶体结构的三维展示、配位说明与晶胞计数。
+            当前聚焦 NaCl 型、CsCl 型、金刚石型，以及 FCC、BCC、HCP 三类代表性晶体结构的三维展示、配位显示与模型内贡献标注。
           </p>
         </header>
 
         <section class="control-panel" aria-labelledby="control-title">
           <div class="section-head">
             <h2 id="control-title">控制面板</h2>
-            <p>支持晶胞切换、自动旋转、配位说明、辅助原子显示与计数说明切换。</p>
+            <p>支持晶胞切换、自动旋转、配位显示、辅助原子显示与模型内贡献标注。</p>
           </div>
 
           <section class="selector-card" aria-labelledby="selector-title">
@@ -81,8 +84,8 @@
             <button id="btn-auto-rotate" class="control-button" type="button">
               自动旋转
             </button>
-            <button id="btn-show-axes" class="control-button" type="button">
-              显示坐标轴
+            <button id="btn-show-cell-axes" class="control-button" type="button">
+              晶胞内坐标轴
             </button>
             <button
               id="btn-show-coordination"
@@ -100,14 +103,16 @@
             >
               显示辅助原子
             </button>
-            <button id="btn-show-count" class="control-button" type="button" disabled>
-              显示计数
+            <button
+              id="btn-show-count"
+              class="control-button"
+              type="button"
+              aria-label="切换模型内原子贡献标注"
+              disabled
+            >
+              原子贡献标注
             </button>
           </div>
-
-          <p class="control-note">
-            “显示配位”会突出代表性中心粒子及其最近邻环境；“显示计数”会打开当前晶胞的计数规则与最终结论。
-          </p>
         </section>
       </div>
 
@@ -135,43 +140,6 @@
       >
         收起信息栏
       </button>
-    </div>
-
-    <div
-      id="knowledge-stack"
-      class="knowledge-stack is-left"
-      aria-label="结构知识说明区"
-      hidden
-    >
-      <section
-        id="counting-floating"
-        class="knowledge-panel counting-panel"
-        aria-labelledby="counting-heading"
-        hidden
-      >
-        <div class="knowledge-card">
-          <h2 id="counting-heading">计数说明</h2>
-          <div id="counting-content" class="knowledge-content">
-            <p class="knowledge-empty">当前晶胞暂未提供计数说明。</p>
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="coordination-floating"
-        class="knowledge-panel coordination-panel"
-        aria-labelledby="coordination-heading"
-        hidden
-      >
-        <div class="knowledge-card">
-          <h2 id="coordination-heading">配位说明</h2>
-          <div id="coordination-content" class="knowledge-content">
-            <p id="coordination-summary" class="coordination-summary">
-              当前晶胞暂未提供配位说明。
-            </p>
-          </div>
-        </div>
-      </section>
     </div>
 
     <aside

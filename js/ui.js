@@ -3,8 +3,6 @@ const crystalSummaryElement = document.getElementById("crystal-summary");
 const floatingPanel = document.getElementById("floating-ui");
 const floatingPanelBody = document.getElementById("floating-ui-body");
 const knowledgeStack = document.getElementById("knowledge-stack");
-const coordinationPanel = document.getElementById("coordination-floating");
-const coordinationContentElement = document.getElementById("coordination-content");
 const countingPanel = document.getElementById("counting-floating");
 const countingContentElement = document.getElementById("counting-content");
 const atomLegendPanel = document.getElementById("atom-legend-floating");
@@ -19,15 +17,6 @@ const PANEL_LAYOUT_STORAGE_KEY = "crystal-cell-visualizer-panel-layout";
 const FLOATING_PANEL_GAP = 12;
 const ATTACHED_PANEL_GAP = 8;
 const COUNTING_CARD_MIN_SHARE = 180;
-const COORDINATION_CARD_MIN_SHARE = 108;
-const COORDINATION_CARD_MAX_SHARE_RATIO = 0.34;
-const COORDINATION_CARD_SOFT_MAX_HEIGHT = 280;
-const LEGEND_AXIS_MIN_SIZE = 88;
-const LEGEND_AXIS_MAX_SIZE = 148;
-const LEGEND_AXIS_TARGET_SIZE = 96;
-const LEGEND_COMPACT_MIN_WIDTH = 112;
-const LEGEND_MIN_WIDTH = 132;
-const LEGEND_AXIS_ROW_GAP = 12;
 const ATOM_LEGEND_FIXED_WIDTH = 312;
 const ATOM_LEGEND_FIXED_HEIGHT = 141;
 const PANEL_TOOLBAR_FALLBACK_HEIGHT = 48;
@@ -37,7 +26,6 @@ const ATOM_LEGEND_MOVE_ANIMATION_MS = PANEL_MOVE_ANIMATION_MS;
 const panelLayoutRectCache = new WeakMap();
 const cardAnimationState = new WeakMap();
 const panelMoveAnimationState = new WeakMap();
-let showAxesState = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -204,8 +192,7 @@ function updateKnowledgeStackVisibility() {
   }
 
   const hasVisiblePanel = Boolean(
-    (countingPanel && !countingPanel.hidden) ||
-      (coordinationPanel && !coordinationPanel.hidden)
+    countingPanel && !countingPanel.hidden
   );
 
   knowledgeStack.hidden = !hasVisiblePanel;
@@ -222,7 +209,7 @@ function getKnowledgeCardElement(panelElement) {
   }
 
   if (
-    (panelElement === coordinationPanel || panelElement === countingPanel) &&
+    panelElement === countingPanel &&
     panelElement.classList.contains("is-detached")
   ) {
     return null;
@@ -234,10 +221,6 @@ function getKnowledgeCardElement(panelElement) {
 }
 
 function getVisibleKnowledgeReferencePanel() {
-  if (isPanelVisible(coordinationPanel)) {
-    return coordinationPanel;
-  }
-
   if (isPanelVisible(countingPanel)) {
     return countingPanel;
   }
@@ -794,21 +777,13 @@ function animatePanelMoveFrom(element, previousRect, options = {}) {
 }
 
 function resetKnowledgeCardHeights() {
-  [countingPanel, coordinationPanel].forEach((panelElement) => {
+  [countingPanel].forEach((panelElement) => {
     const cardElement = panelElement?.querySelector(".knowledge-card");
 
     if (cardElement instanceof HTMLElement) {
       cardElement.style.maxHeight = "";
     }
   });
-}
-
-function shouldDetachCoordinationPanel() {
-  return Boolean(
-    coordinationPanel &&
-      isPanelVisible(coordinationPanel) &&
-      window.innerWidth > 640
-  );
 }
 
 function shouldDetachCountingPanel() {
@@ -836,82 +811,6 @@ function resetCountingPanelLayout() {
   if (countingCardElement instanceof HTMLElement) {
     countingCardElement.style.maxHeight = "";
   }
-}
-
-function resetCoordinationPanelLayout() {
-  if (!coordinationPanel) {
-    return;
-  }
-
-  coordinationPanel.classList.remove("is-detached", "is-left", "is-right");
-  clearDetachedPanelRect(coordinationPanel);
-  coordinationPanel.style.left = "";
-  coordinationPanel.style.right = "";
-  coordinationPanel.style.bottom = "";
-  coordinationPanel.style.width = "";
-
-  const coordinationCardElement = coordinationPanel.querySelector(".knowledge-card");
-
-  if (coordinationCardElement instanceof HTMLElement) {
-    coordinationCardElement.style.maxHeight = "";
-  }
-}
-
-function syncDetachedCoordinationPanelLayout(inset) {
-  if (!isPanelVisible(coordinationPanel)) {
-    resetCoordinationPanelLayout();
-    return 0;
-  }
-
-  if (!shouldDetachCoordinationPanel()) {
-    resetCoordinationPanelLayout();
-    return 0;
-  }
-
-  const coordinationCardElement = coordinationPanel.querySelector(".knowledge-card");
-  const knowledgeSide =
-    knowledgeStack?.dataset.side === "right" ? "right" : "left";
-  const referenceWidth = getKnowledgeColumnWidth(inset);
-  const panelBottom = inset + getPanelToolbarReserve();
-
-  coordinationPanel.classList.add("is-detached");
-  coordinationPanel.classList.toggle("is-left", knowledgeSide === "left");
-  coordinationPanel.classList.toggle("is-right", knowledgeSide === "right");
-  coordinationPanel.style.width = `${referenceWidth}px`;
-  coordinationPanel.style.bottom = `${panelBottom}px`;
-
-  if (knowledgeSide === "left") {
-    coordinationPanel.style.left = `${inset}px`;
-    coordinationPanel.style.right = "auto";
-  } else {
-    coordinationPanel.style.left = "auto";
-    coordinationPanel.style.right = `${inset}px`;
-  }
-
-  if (coordinationCardElement instanceof HTMLElement) {
-    coordinationCardElement.style.maxHeight = `${Math.max(
-      COORDINATION_CARD_MIN_SHARE,
-      Math.floor(window.innerHeight * 0.32)
-    )}px`;
-  }
-
-  const coordinationRect = resolveDetachedPanelRect({
-    panelElement: coordinationPanel,
-    cardElement: coordinationCardElement,
-    liveRect: coordinationPanel.getBoundingClientRect(),
-    side: knowledgeSide,
-    inset,
-    width: referenceWidth,
-    bottom: panelBottom
-  });
-
-  if (!coordinationRect) {
-    clearDetachedPanelRect(coordinationPanel);
-    return 0;
-  }
-
-  setDetachedPanelRect(coordinationPanel, coordinationRect);
-  return coordinationRect.height + FLOATING_PANEL_GAP;
 }
 
 function syncDetachedCountingPanelLayout(inset, bottomOffset = 0) {
@@ -987,12 +886,6 @@ function measureAtomLegendHeight(targetWidth, layoutMode = "default") {
   const previousRight = atomLegendPanel.style.right;
   const previousCardHeight = atomLegendCardElement?.style.height ?? "";
   const previousLayoutMode = atomLegendPanel.dataset.layoutMode ?? "";
-  const previousAxisSize = atomLegendPanel.dataset.axisSize ?? "";
-  const previousAxisHeight = atomLegendPanel.dataset.axisHeight ?? "";
-  const previousRowHeight = atomLegendPanel.dataset.rowHeight ?? "";
-  const previousReferenceWidth = atomLegendPanel.dataset.referenceWidth ?? "";
-  const previousRowGap = atomLegendPanel.dataset.rowGap ?? "";
-
   if (targetWidth > 0) {
     atomLegendPanel.style.width = `${targetWidth}px`;
   }
@@ -1002,11 +895,6 @@ function measureAtomLegendHeight(targetWidth, layoutMode = "default") {
   atomLegendPanel.style.left = "-9999px";
   atomLegendPanel.style.right = "auto";
   atomLegendPanel.dataset.layoutMode = layoutMode;
-  atomLegendPanel.dataset.axisSize = "";
-  atomLegendPanel.dataset.axisHeight = "";
-  atomLegendPanel.dataset.rowHeight = "";
-  atomLegendPanel.dataset.referenceWidth = "";
-  atomLegendPanel.dataset.rowGap = "";
 
   if (atomLegendCardElement) {
     atomLegendCardElement.style.height = "100%";
@@ -1021,46 +909,12 @@ function measureAtomLegendHeight(targetWidth, layoutMode = "default") {
   atomLegendPanel.style.left = previousLeft;
   atomLegendPanel.style.right = previousRight;
   atomLegendPanel.dataset.layoutMode = previousLayoutMode;
-  atomLegendPanel.dataset.axisSize = previousAxisSize;
-  atomLegendPanel.dataset.axisHeight = previousAxisHeight;
-  atomLegendPanel.dataset.rowHeight = previousRowHeight;
-  atomLegendPanel.dataset.referenceWidth = previousReferenceWidth;
-  atomLegendPanel.dataset.rowGap = previousRowGap;
 
   if (atomLegendCardElement) {
     atomLegendCardElement.style.height = previousCardHeight;
   }
 
   return legendHeight;
-}
-
-function buildLegendAxisRowSpec(mode, totalWidth) {
-  const compactLegendMinWidth = Math.max(LEGEND_COMPACT_MIN_WIDTH, LEGEND_MIN_WIDTH);
-  const maxAxisSize = Math.max(LEGEND_AXIS_MIN_SIZE, LEGEND_AXIS_MAX_SIZE);
-  const axisSize = clampNumber(
-    LEGEND_AXIS_TARGET_SIZE,
-    LEGEND_AXIS_MIN_SIZE,
-    maxAxisSize
-  );
-  const availableLegendWidth = totalWidth - LEGEND_AXIS_ROW_GAP - axisSize;
-  const legendWidth = clampNumber(
-    ATOM_LEGEND_FIXED_WIDTH,
-    compactLegendMinWidth,
-    Math.max(compactLegendMinWidth, availableLegendWidth)
-  );
-  const legendNaturalHeight = ATOM_LEGEND_FIXED_HEIGHT;
-  const rowHeight = Math.max(axisSize, legendNaturalHeight);
-
-  return {
-    mode,
-    reserveTop: rowHeight + ATTACHED_PANEL_GAP,
-    referenceWidth: totalWidth,
-    axisSize,
-    rowHeight,
-    legendHeight: legendNaturalHeight,
-    rowGap: LEGEND_AXIS_ROW_GAP,
-    legendWidth
-  };
 }
 
 function getAtomLegendLayoutPlan(inset) {
@@ -1071,7 +925,6 @@ function getAtomLegendLayoutPlan(inset) {
     };
   }
 
-  const coordinationVisible = isPanelVisible(coordinationPanel);
   const countingVisible = isPanelVisible(countingPanel);
   const referenceWidth = getKnowledgeColumnWidth(inset);
 
@@ -1088,68 +941,10 @@ function getAtomLegendLayoutPlan(inset) {
     };
   }
 
-  if (coordinationVisible) {
-    const legendWidth = Math.min(ATOM_LEGEND_FIXED_WIDTH, referenceWidth);
-    const legendHeight = ATOM_LEGEND_FIXED_HEIGHT;
-
-    return {
-      mode: "coordination",
-      reserveTop: legendHeight + ATTACHED_PANEL_GAP,
-      referenceWidth,
-      legendWidth,
-      legendHeight
-    };
-  }
-
   return {
     mode: "default",
     reserveTop: 0
   };
-}
-
-function getAxisWidgetTopBoundary(inset) {
-  if (!showAxesState) {
-    return inset;
-  }
-
-  const axisWidgetElement = document.querySelector(".axis-widget-overlay");
-
-  if (!(axisWidgetElement instanceof HTMLElement)) {
-    return inset;
-  }
-
-  const computedStyle = window.getComputedStyle(axisWidgetElement);
-
-  if (
-    computedStyle.display === "none" ||
-    computedStyle.visibility === "hidden" ||
-    Number.parseFloat(computedStyle.opacity || "1") <= 0
-  ) {
-    return inset;
-  }
-
-  const axisRect = axisWidgetElement.getBoundingClientRect();
-
-  if (axisRect.width <= 0 || axisRect.height <= 0) {
-    return inset;
-  }
-
-  if (!knowledgeStack || knowledgeStack.hidden || window.innerWidth <= 640) {
-    return Math.max(inset, Math.round(axisRect.bottom + FLOATING_PANEL_GAP));
-  }
-
-  const knowledgeSide =
-    knowledgeStack.dataset.side === "right" ? "right" : "left";
-  const axisSide =
-    axisRect.left + axisRect.width * 0.5 <= window.innerWidth * 0.5
-      ? "left"
-      : "right";
-
-  if (knowledgeSide !== axisSide) {
-    return inset;
-  }
-
-  return Math.max(inset, Math.round(axisRect.bottom + FLOATING_PANEL_GAP));
 }
 
 function getAtomLegendTopBoundary(inset) {
@@ -1183,9 +978,8 @@ function getAtomLegendTopBoundary(inset) {
 
 function syncKnowledgeCardHeights(availableStackHeight) {
   const countingCardElement = getKnowledgeCardElement(countingPanel);
-  const coordinationCardElement = getKnowledgeCardElement(coordinationPanel);
 
-  [countingCardElement, coordinationCardElement].forEach((cardElement) => {
+  [countingCardElement].forEach((cardElement) => {
     if (cardElement) {
       cardElement.style.maxHeight = "none";
     }
@@ -1199,13 +993,6 @@ function syncKnowledgeCardHeights(availableStackHeight) {
           naturalHeight: countingCardElement.scrollHeight
         }
       : null,
-    coordinationCardElement
-      ? {
-          id: "coordination",
-          element: coordinationCardElement,
-          naturalHeight: coordinationCardElement.scrollHeight
-        }
-      : null
   ].filter(Boolean);
 
   if (!visibleCards.length || !Number.isFinite(availableStackHeight)) {
@@ -1225,11 +1012,7 @@ function syncKnowledgeCardHeights(availableStackHeight) {
   }
 
   const countingEntry = visibleCards.find((entry) => entry.id === "counting");
-  const coordinationEntry = visibleCards.find(
-    (entry) => entry.id === "coordination"
-  );
-
-  if (!countingEntry || !coordinationEntry) {
+  if (!countingEntry) {
     visibleCards.forEach((entry) => {
       entry.element.style.maxHeight = `${Math.max(
         0,
@@ -1238,47 +1021,7 @@ function syncKnowledgeCardHeights(availableStackHeight) {
     });
     return;
   }
-
-  if (availableHeight <= 240) {
-    const countingHeight = Math.floor(availableHeight * 0.66);
-    const coordinationHeight = Math.max(0, availableHeight - countingHeight);
-
-    countingEntry.element.style.maxHeight = `${Math.max(0, countingHeight)}px`;
-    coordinationEntry.element.style.maxHeight = `${Math.max(
-      0,
-      coordinationHeight
-    )}px`;
-    return;
-  }
-
-  const coordinationMinimum = Math.min(
-    coordinationEntry.naturalHeight,
-    COORDINATION_CARD_MIN_SHARE
-  );
-  const coordinationPreferred = Math.min(
-    coordinationEntry.naturalHeight,
-    Math.max(
-      coordinationMinimum,
-      Math.min(
-        COORDINATION_CARD_SOFT_MAX_HEIGHT,
-        Math.floor(availableHeight * COORDINATION_CARD_MAX_SHARE_RATIO)
-      )
-    )
-  );
-  const countingMinimum = Math.min(
-    countingEntry.naturalHeight,
-    Math.max(COUNTING_CARD_MIN_SHARE, Math.floor(availableHeight * 0.52))
-  );
-  const coordinationCap = Math.max(0, availableHeight - countingMinimum);
-  const coordinationHeight = clampNumber(
-    coordinationPreferred,
-    Math.min(coordinationMinimum, coordinationCap),
-    coordinationCap
-  );
-  const countingHeight = Math.max(0, availableHeight - coordinationHeight);
-
-  countingEntry.element.style.maxHeight = `${countingHeight}px`;
-  coordinationEntry.element.style.maxHeight = `${coordinationHeight}px`;
+  countingEntry.element.style.maxHeight = `${Math.max(0, availableHeight)}px`;
 }
 
 function syncAtomLegendLayout(inset, layoutPlan = getAtomLegendLayoutPlan(inset)) {
@@ -1300,11 +1043,6 @@ function syncAtomLegendLayout(inset, layoutPlan = getAtomLegendLayoutPlan(inset)
   atomLegendPanel.style.right = "auto";
   atomLegendPanel.style.width = "";
   atomLegendPanel.style.height = "";
-  atomLegendPanel.dataset.axisSize = "";
-  atomLegendPanel.dataset.axisHeight = "";
-  atomLegendPanel.dataset.rowHeight = "";
-  atomLegendPanel.dataset.referenceWidth = "";
-  atomLegendPanel.dataset.rowGap = "";
 
   if (atomLegendCardElement) {
     atomLegendCardElement.style.height = "";
@@ -1322,36 +1060,6 @@ function syncAtomLegendLayout(inset, layoutPlan = getAtomLegendLayoutPlan(inset)
     atomLegendPanel.style.width = `${compactLegendWidth}px`;
     atomLegendPanel.style.height = `${ATOM_LEGEND_FIXED_HEIGHT}px`;
     atomLegendPanel.style.bottom = `${inset + toolbarReserve}px`;
-    return;
-  }
-
-  if (layoutPlan.mode === "coordination") {
-    const coordinationRect = getPanelLayoutRect(coordinationPanel);
-    const referenceWidth =
-      layoutPlan.referenceWidth ?? getReferencePanelWidth(coordinationPanel);
-    const legendWidth =
-      layoutPlan.legendWidth ?? Math.min(ATOM_LEGEND_FIXED_WIDTH, referenceWidth);
-    const legendHeight =
-      layoutPlan.legendHeight ?? ATOM_LEGEND_FIXED_HEIGHT;
-    const legendLeft =
-      legendSide === "left"
-        ? coordinationRect?.left ?? inset
-        : Math.max(
-            inset,
-            (coordinationRect?.right ?? window.innerWidth - inset) - legendWidth
-          );
-
-    atomLegendPanel.style.width = `${legendWidth}px`;
-    atomLegendPanel.style.height = `${legendHeight}px`;
-    atomLegendPanel.style.bottom = "auto";
-    atomLegendPanel.style.top = `${Math.max(
-      inset,
-      (coordinationRect?.top ?? inset + legendHeight + ATTACHED_PANEL_GAP) -
-        legendHeight -
-        ATTACHED_PANEL_GAP
-    )}px`;
-    atomLegendPanel.style.left = `${legendLeft}px`;
-
     return;
   }
 
@@ -1381,64 +1089,6 @@ function syncAtomLegendLayout(inset, layoutPlan = getAtomLegendLayoutPlan(inset)
     )}px`;
     atomLegendPanel.style.left = `${legendLeft}px`;
 
-    return;
-  }
-
-  if (
-    layoutPlan.mode === "count-axis" ||
-    layoutPlan.mode === "coordination-axis"
-  ) {
-    const referencePanel =
-      layoutPlan.mode === "count-axis" ? countingPanel : coordinationPanel;
-    const referenceRect = getPanelLayoutRect(referencePanel);
-    const totalWidth =
-      layoutPlan.referenceWidth ?? getKnowledgeColumnWidth(inset);
-    const axisSize =
-      layoutPlan.axisSize ?? clampNumber(
-        Math.floor(totalWidth * 0.36),
-        LEGEND_AXIS_MIN_SIZE,
-        LEGEND_AXIS_MAX_SIZE
-      );
-    const rowHeight = layoutPlan.rowHeight ?? axisSize;
-    const rowGap = layoutPlan.rowGap ?? LEGEND_AXIS_ROW_GAP;
-    const legendWidth =
-      layoutPlan.legendWidth ??
-      Math.min(
-        ATOM_LEGEND_FIXED_WIDTH,
-        Math.max(LEGEND_MIN_WIDTH, totalWidth - rowGap - axisSize)
-      );
-    const legendHeight =
-      layoutPlan.legendHeight ?? ATOM_LEGEND_FIXED_HEIGHT;
-    const rowLeft =
-      legendSide === "left"
-        ? inset
-        : Math.max(inset, window.innerWidth - inset - totalWidth);
-    const legendLeft =
-      legendSide === "left"
-        ? rowLeft + axisSize + rowGap
-        : rowLeft;
-    const rowTop = Math.max(
-      inset,
-      (referenceRect?.top ?? inset + rowHeight + ATTACHED_PANEL_GAP) -
-        rowHeight -
-        ATTACHED_PANEL_GAP
-    );
-
-    atomLegendPanel.style.width = `${legendWidth}px`;
-    atomLegendPanel.style.height = `${legendHeight}px`;
-    atomLegendPanel.style.left = `${legendLeft}px`;
-    atomLegendPanel.style.bottom = "auto";
-    atomLegendPanel.dataset.axisSize = String(axisSize);
-    atomLegendPanel.dataset.axisHeight = String(axisSize);
-    atomLegendPanel.dataset.rowHeight = String(rowHeight);
-    atomLegendPanel.dataset.referenceWidth = String(totalWidth);
-    atomLegendPanel.dataset.rowGap = String(rowGap);
-
-    if (atomLegendCardElement) {
-      atomLegendCardElement.style.height = "100%";
-    }
-
-    atomLegendPanel.style.top = `${rowTop}px`;
     return;
   }
 
@@ -1507,13 +1157,12 @@ function syncFloatingPanelLayout() {
   const panelBaseBottom = inset + getPanelCollapseToolbarReserve();
   let panelBottom = panelBaseBottom;
   const legendLayoutPlan = getAtomLegendLayoutPlan(inset);
-  const detachedCoordinationReserve = syncDetachedCoordinationPanelLayout(inset);
   const detachedCountingReserve = syncDetachedCountingPanelLayout(
     inset,
-    detachedCoordinationReserve
+    0
   );
   const hasDetachedKnowledgePanels =
-    shouldDetachCoordinationPanel() || shouldDetachCountingPanel();
+    shouldDetachCountingPanel();
   const knowledgeBottom = hasDetachedKnowledgePanels
     ? inset
     : inset + getPanelToolbarReserve();
@@ -1542,9 +1191,6 @@ function syncFloatingPanelLayout() {
         }
       }
 
-      const isSharedLegendAxisRow =
-        legendLayoutPlan.mode === "count-axis" ||
-        legendLayoutPlan.mode === "coordination-axis";
       const applyKnowledgeStackBounds = (stackTopBoundary) => {
         const availableStackHeight = Math.max(
           0,
@@ -1564,25 +1210,15 @@ function syncFloatingPanelLayout() {
 
         return availableStackHeight;
       };
-      const estimatedAxisTopBoundary = isSharedLegendAxisRow
-        ? inset
-        : getAxisWidgetTopBoundary(inset);
-      let stackTopBoundary =
-        estimatedAxisTopBoundary + legendLayoutPlan.reserveTop;
+      let stackTopBoundary = inset + legendLayoutPlan.reserveTop;
 
       if (!hasDetachedKnowledgePanels) {
         applyKnowledgeStackBounds(stackTopBoundary);
       }
       syncAtomLegendLayout(inset, legendLayoutPlan);
 
-      const actualAxisTopBoundary = isSharedLegendAxisRow
-        ? inset
-        : getAxisWidgetTopBoundary(inset);
       const actualLegendTopBoundary = getAtomLegendTopBoundary(inset);
-      const resolvedStackTopBoundary = Math.max(
-        actualAxisTopBoundary,
-        actualLegendTopBoundary
-      );
+      const resolvedStackTopBoundary = actualLegendTopBoundary;
 
       if (
         !hasDetachedKnowledgePanels &&
@@ -1732,59 +1368,159 @@ function renderSection(title, body, className = "") {
   `;
 }
 
-function buildCountingPanelHtml(crystal) {
-  const info = crystal.countingInfo;
-
-  if (!info) {
-    return `
-      <p class="knowledge-empty">当前晶胞暂未提供计数说明。</p>
-    `;
+function renderEffectiveAtomGroupList(groups, activeGroupId) {
+  if (!groups?.length) {
+    return "";
   }
 
-  const headerHtml = `
-    <div class="knowledge-intro">
-      <p class="knowledge-kicker">${escapeHtml(info.countingTitle || "计数说明")}</p>
-      <h3>${escapeHtml(crystal.displayName ?? crystal.name)}</h3>
-      <p class="knowledge-summary">${escapeHtml(info.countingSummary)}</p>
-    </div>
-  `;
-
-  const finalConclusionHtml = [
-    renderFinalCounts(info.finalParticleCount),
-    info.formulaConclusion
-      ? `<p class="knowledge-conclusion-text">${escapeHtml(info.formulaConclusion)}</p>`
-      : ""
-  ]
-    .filter(Boolean)
-    .join("");
-
   return `
-    ${headerHtml}
-    ${renderSection("最终结论", finalConclusionHtml, "is-highlight")}
-    ${renderSection("计数规则", renderRuleList(info.equivalentContributionRules))}
+    <div class="effective-group-list">
+      ${groups
+        .map((group) => {
+          const isActive = group.id === activeGroupId;
+
+          return `
+            <article
+              class="effective-group-item${isActive ? " is-active" : ""}"
+              data-effective-group-id="${escapeHtml(group.id)}"
+              role="button"
+              tabindex="0"
+              aria-pressed="${isActive ? "true" : "false"}"
+            >
+              <div class="effective-group-header">
+                <h5>${escapeHtml(group.label)}</h5>
+                <p class="effective-group-equation">${escapeHtml(group.equation)}</p>
+              </div>
+              ${
+                group.explanation
+                  ? `<p class="effective-group-copy">${escapeHtml(group.explanation)}</p>`
+                  : ""
+              }
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
   `;
 }
 
-function buildCoordinationPanelHtml(crystal) {
-  const info = crystal.coordinationInfo;
-  const label = crystal.coordinationLabel ?? info?.title ?? "配位说明";
-  const summary =
-    info?.summary ??
-    crystal.coordinationDescription ??
-    "当前晶胞支持代表性配位环境显示。";
+function buildEffectiveTotalsItems(totalAtoms = {}) {
+  return Object.entries(totalAtoms).map(([species, value]) => ({
+    label: `${species} 有效原子数`,
+    value: formatNumber(value)
+  }));
+}
 
-  if (!crystal.supportsCoordinationDisplay || !info) {
+function formatNumber(value) {
+  if (!Number.isFinite(value)) {
+    return String(value ?? "");
+  }
+
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function buildCountingPanelHtml(crystal, renderState = {}) {
+  const info = crystal.countingInfo;
+  const effectiveCounting = crystal.effectiveAtomCounting;
+
+  if (!info && !effectiveCounting) {
     return `
-      <p class="knowledge-empty">当前晶胞暂未提供配位说明。</p>
+      <p class="knowledge-empty">当前晶胞暂未提供有效原子示意。</p>
     `;
   }
 
+  const detailGroupId = renderState.detailGroupId ?? null;
+  const detailGroup =
+    effectiveCounting?.groups?.find((group) => group.id === detailGroupId) ?? null;
+  const totalItems = [
+    ...buildEffectiveTotalsItems(effectiveCounting?.totalAtoms),
+    ...(effectiveCounting?.stoichiometry
+      ? [{ label: "化学计量比", value: effectiveCounting.stoichiometry }]
+      : [])
+  ];
+  const finalConclusionHtml = [
+    totalItems.length ? renderFinalCounts(totalItems) : "",
+    effectiveCounting?.formula
+      ? `<p class="knowledge-conclusion-text">${escapeHtml(
+          `计数关系：${effectiveCounting.formula}`
+        )}</p>`
+      : "",
+    effectiveCounting?.shortConclusion
+      ? `<p class="knowledge-conclusion-text">${escapeHtml(
+          effectiveCounting.shortConclusion
+        )}</p>`
+      : info?.formulaConclusion
+        ? `<p class="knowledge-conclusion-text">${escapeHtml(
+            info.formulaConclusion
+          )}</p>`
+        : ""
+  ]
+    .filter(Boolean)
+    .join("");
+  const detailHtml = detailGroup
+    ? `
+        <div class="effective-detail-card">
+          <p class="effective-detail-kicker">当前高亮分组</p>
+          <h4>${escapeHtml(detailGroup.label)}</h4>
+          <p class="effective-detail-equation">${escapeHtml(detailGroup.equation)}</p>
+          ${
+            detailGroup.explanation
+              ? `<p class="effective-detail-copy">${escapeHtml(detailGroup.explanation)}</p>`
+              : ""
+          }
+        </div>
+      `
+    : `
+        <div class="effective-detail-card">
+          <p class="effective-detail-kicker">查看方式</p>
+          <h4>全部显示</h4>
+          <p class="effective-detail-copy">
+            当前晶胞中，高亮部分表示真正计入本晶胞的原子份额；半透明整球表示该原子在相邻晶胞中的共享部分。
+          </p>
+        </div>
+      `;
+
   return `
     <div class="knowledge-intro">
-      <p class="knowledge-kicker">代表性配位环境</p>
-      <h3>${escapeHtml(label)}</h3>
-      <p class="knowledge-summary">${escapeHtml(summary)}</p>
+      <p class="knowledge-kicker">${escapeHtml(
+        effectiveCounting?.title || info?.countingTitle || "有效原子示意"
+      )}</p>
+      <h3>${escapeHtml(crystal.displayName ?? crystal.name)}</h3>
+      <p class="knowledge-summary">${escapeHtml(
+        effectiveCounting?.summary || info?.countingSummary || ""
+      )}</p>
     </div>
+    ${renderSection("当前说明", detailHtml, "is-highlight")}
+    ${
+      finalConclusionHtml
+        ? renderSection("有效原子汇总", finalConclusionHtml, "is-highlight")
+        : ""
+    }
+    ${
+      effectiveCounting?.groups?.length
+        ? renderSection(
+            "分组贡献",
+            renderEffectiveAtomGroupList(effectiveCounting.groups, detailGroup?.id)
+          )
+        : ""
+    }
+    ${
+      info
+        ? renderSection(
+            "文字推导（辅助）",
+            `
+              <details class="knowledge-details">
+                <summary>展开等效计数推导</summary>
+                <div class="knowledge-details-body">
+                  ${renderRuleList(info.equivalentContributionRules)}
+                </div>
+              </details>
+            `
+          )
+        : ""
+    }
   `;
 }
 
@@ -1870,27 +1606,6 @@ export function setCrystalSummary(message) {
   }
 }
 
-export function setCoordinationPanelVisibility(isVisible) {
-  if (!coordinationPanel) {
-    return;
-  }
-
-  if (isVisible) {
-    delete coordinationPanel.dataset.layoutHidden;
-  }
-
-  setAnimatedPanelVisibility(coordinationPanel, isVisible, {
-    onAfterShow: requestFloatingPanelLayoutResync,
-    onAfterHide() {
-      delete coordinationPanel.dataset.layoutHidden;
-      updateKnowledgeStackVisibility();
-      requestFloatingPanelLayoutResync();
-    }
-  });
-  updateKnowledgeStackVisibility();
-  requestFloatingPanelLayoutResync();
-}
-
 export function setCountingPanelVisibility(isVisible) {
   if (!countingPanel) {
     return;
@@ -1912,21 +1627,12 @@ export function setCountingPanelVisibility(isVisible) {
   requestFloatingPanelLayoutResync();
 }
 
-export function renderCoordinationPanel(crystal) {
-  if (!coordinationContentElement) {
-    return;
-  }
-
-  coordinationContentElement.innerHTML = buildCoordinationPanelHtml(crystal);
-  requestFloatingPanelLayoutResync();
-}
-
-export function renderCountingPanel(crystal) {
+export function renderCountingPanel(crystal, renderState = {}) {
   if (!countingContentElement) {
     return;
   }
 
-  countingContentElement.innerHTML = buildCountingPanelHtml(crystal);
+  countingContentElement.innerHTML = buildCountingPanelHtml(crystal, renderState);
   requestFloatingPanelLayoutResync();
 }
 
@@ -2010,16 +1716,18 @@ export function setupUI({
   onViewChange,
   onViewLockChange,
   onAutoRotateChange,
-  onShowAxesChange,
+  onShowCellAxesChange,
   onShowAuxiliaryChange,
   onShowCoordinationChange,
-  onShowCountChange
+  onShowCountChange,
+  onCountGroupChange
 }) {
   const crystalSelect = document.getElementById("crystal-select");
   const viewSelect = document.getElementById("view-select");
+  const countGroupSelect = document.getElementById("counting-group-select");
   const viewLockButton = document.getElementById("btn-view-lock");
   const autoRotateButton = document.getElementById("btn-auto-rotate");
-  const axesButton = document.getElementById("btn-show-axes");
+  const cellAxesButton = document.getElementById("btn-show-cell-axes");
   const coordinationButton = document.getElementById("btn-show-coordination");
   const auxiliaryButton = document.getElementById("btn-show-auxiliary");
   const countButton = document.getElementById("btn-show-count");
@@ -2028,9 +1736,10 @@ export function setupUI({
   const state = {
     currentCrystalId: initialState?.currentCrystalId ?? "",
     selectedViewId: initialState?.selectedViewId ?? "default",
+    selectedCountGroupId: initialState?.selectedCountGroupId ?? "all",
     viewLocked: Boolean(initialState?.viewLocked),
     autoRotate: Boolean(initialState?.autoRotate),
-    showAxes: Boolean(initialState?.showAxes),
+    showCellAxes: Boolean(initialState?.showCellAxes),
     showAuxiliary: Boolean(initialState?.showAuxiliary),
     showCoordination: Boolean(initialState?.showCoordination),
     showCount: Boolean(initialState?.showCount),
@@ -2038,7 +1747,6 @@ export function setupUI({
     panelCollapsed: storedPanelLayout.panelCollapsed
   };
   let knowledgeVisibilityBeforePanelCollapse = null;
-  showAxesState = state.showAxes;
 
   renderSelectOptions(
     crystalSelect,
@@ -2046,9 +1754,14 @@ export function setupUI({
     state.currentCrystalId
   );
   renderSelectOptions(viewSelect, viewOptions ?? [], state.selectedViewId);
+  renderSelectOptions(
+    countGroupSelect,
+    initialState?.countGroupOptions ?? [{ id: "all", label: "全部显示" }],
+    state.selectedCountGroupId
+  );
   updateButtonState(viewLockButton, state.viewLocked);
   updateButtonState(autoRotateButton, state.autoRotate);
-  updateButtonState(axesButton, state.showAxes);
+  updateButtonState(cellAxesButton, state.showCellAxes);
   updateButtonState(auxiliaryButton, state.showAuxiliary);
   updateButtonState(coordinationButton, state.showCoordination);
   updateButtonState(countButton, state.showCount);
@@ -2073,6 +1786,31 @@ export function setupUI({
     }
   }
 
+  function setSelectedCountGroup(nextGroupId) {
+    state.selectedCountGroupId = nextGroupId || "all";
+
+    if (countGroupSelect) {
+      countGroupSelect.value = state.selectedCountGroupId;
+    }
+  }
+
+  function setCountGroupOptions(options) {
+    renderSelectOptions(
+      countGroupSelect,
+      options?.length ? options : [{ id: "all", label: "全部显示" }],
+      state.selectedCountGroupId
+    );
+
+    if (
+      countGroupSelect &&
+      ![...countGroupSelect.options].some(
+        (option) => option.value === state.selectedCountGroupId
+      )
+    ) {
+      setSelectedCountGroup("all");
+    }
+  }
+
   function setViewLock(nextValue) {
     state.viewLocked = Boolean(nextValue);
     updateButtonState(viewLockButton, state.viewLocked);
@@ -2083,11 +1821,9 @@ export function setupUI({
     updateButtonState(autoRotateButton, state.autoRotate);
   }
 
-  function setShowAxes(nextValue) {
-    state.showAxes = Boolean(nextValue);
-    showAxesState = state.showAxes;
-    updateButtonState(axesButton, state.showAxes);
-    requestFloatingPanelLayoutResync();
+  function setShowCellAxes(nextValue) {
+    state.showCellAxes = Boolean(nextValue);
+    updateButtonState(cellAxesButton, state.showCellAxes);
   }
 
   function setShowCoordination(nextValue) {
@@ -2107,6 +1843,14 @@ export function setupUI({
     requestFloatingPanelLayoutResync();
   }
 
+  function setCountGroupAvailability(isEnabled) {
+    if (!countGroupSelect) {
+      return;
+    }
+
+    countGroupSelect.disabled = !isEnabled;
+  }
+
   function setPanelCollapsed(nextValue) {
     const nextCollapsed = Boolean(nextValue);
 
@@ -2118,20 +1862,11 @@ export function setupUI({
 
     if (nextCollapsed) {
       knowledgeVisibilityBeforePanelCollapse = {
-        showCoordination: state.showCoordination,
         showCount: state.showCount
       };
 
-      if (state.showCoordination) {
-        coordinationPanel.dataset.layoutHidden = "true";
-      }
-
-      if (state.showCount) {
+      if (state.showCount && countingPanel) {
         countingPanel.dataset.layoutHidden = "true";
-      }
-
-      if (state.showCoordination) {
-        setCoordinationPanelVisibility(false);
       }
 
       if (state.showCount) {
@@ -2144,18 +1879,11 @@ export function setupUI({
     persistPanelLayout(state);
 
     if (!nextCollapsed && knowledgeVisibilityBeforePanelCollapse) {
-      const shouldRestoreCoordination =
-        knowledgeVisibilityBeforePanelCollapse.showCoordination &&
-        Boolean(coordinationButton && !coordinationButton.disabled);
       const shouldRestoreCount =
         knowledgeVisibilityBeforePanelCollapse.showCount &&
         Boolean(countButton && !countButton.disabled);
 
       knowledgeVisibilityBeforePanelCollapse = null;
-
-      if (shouldRestoreCoordination) {
-        setCoordinationPanelVisibility(true);
-      }
 
       if (shouldRestoreCount) {
         setCountingPanelVisibility(true);
@@ -2186,6 +1914,61 @@ export function setupUI({
   viewSelect?.addEventListener("click", (event) => {
     event.stopPropagation();
   });
+  countGroupSelect?.addEventListener("input", () => {
+    setSelectedCountGroup(countGroupSelect.value);
+    onCountGroupChange?.(state.selectedCountGroupId);
+  });
+  countGroupSelect?.addEventListener("change", () => {
+    setSelectedCountGroup(countGroupSelect.value);
+    onCountGroupChange?.(state.selectedCountGroupId);
+  });
+  countGroupSelect?.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  countGroupSelect?.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  countingContentElement?.addEventListener("click", (event) => {
+    const target = event.target;
+
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const groupItem = target.closest("[data-effective-group-id]");
+
+    if (!(groupItem instanceof HTMLElement)) {
+      return;
+    }
+
+    const nextGroupId = groupItem.dataset.effectiveGroupId || "all";
+
+    setSelectedCountGroup(nextGroupId);
+    onCountGroupChange?.(state.selectedCountGroupId);
+  });
+  countingContentElement?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    const target = event.target;
+
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const groupItem = target.closest("[data-effective-group-id]");
+
+    if (!(groupItem instanceof HTMLElement)) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextGroupId = groupItem.dataset.effectiveGroupId || "all";
+
+    setSelectedCountGroup(nextGroupId);
+    onCountGroupChange?.(state.selectedCountGroupId);
+  });
 
   viewLockButton?.addEventListener("click", () => {
     setViewLock(!state.viewLocked);
@@ -2201,13 +1984,13 @@ export function setupUI({
     onAutoRotateChange?.(state.autoRotate);
   });
 
-  axesButton?.addEventListener("click", () => {
-    if (axesButton.disabled) {
+  cellAxesButton?.addEventListener("click", () => {
+    if (cellAxesButton.disabled) {
       return;
     }
 
-    setShowAxes(!state.showAxes);
-    onShowAxesChange?.(state.showAxes);
+    setShowCellAxes(!state.showCellAxes);
+    onShowCellAxesChange?.(state.showCellAxes);
   });
 
   auxiliaryButton?.addEventListener("click", () => {
@@ -2264,10 +2047,6 @@ export function setupUI({
       resizeObserver.observe(countingPanel);
     }
 
-    if (coordinationPanel) {
-      resizeObserver.observe(coordinationPanel);
-    }
-
     if (atomLegendPanel) {
       resizeObserver.observe(atomLegendPanel);
     }
@@ -2320,8 +2099,11 @@ export function setupUI({
       }
 
       setButtonAvailability(countButton, isEnabled);
+      setCountGroupAvailability(isEnabled);
     },
-    setShowAxes,
+    setCountGroupOptions,
+    setSelectedCountGroup,
+    setShowCellAxes,
     setShowAuxiliary,
     setShowCoordination,
     setShowCount,

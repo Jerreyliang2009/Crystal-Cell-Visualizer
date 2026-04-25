@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { AtomContributionInteraction } from "./atomContributionInteraction.js";
+import { AtomContributionRenderer } from "./atomContributionRenderer.js";
+import { EffectiveAtomRenderer } from "./effectiveAtomRenderer.js";
 import {
   axisConvention,
   getBuildStatusLabel,
@@ -11,10 +14,8 @@ import {
   standardViewDirections
 } from "./crystalData.js";
 import {
-  renderCoordinationPanel,
   renderCountingPanel,
   renderAtomLegend,
-  setCoordinationPanelVisibility,
   setCountingPanelVisibility,
   setCrystalSummary,
   setPanelStatus,
@@ -34,6 +35,9 @@ const representativeFormulaElement = document.getElementById(
 const buildStatusElement = document.getElementById("build-status");
 const supportElement = document.getElementById("feature-support");
 const audienceElement = document.getElementById("target-audience");
+const atomContributionHintElement = document.getElementById(
+  "atom-contribution-hint"
+);
 
 if (!viewerContainer) {
   throw new Error("未找到 3D 渲染容器 #crystal-viewer");
@@ -59,6 +63,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.localClippingEnabled = true;
 renderer.domElement.classList.add("viewer-renderer");
 viewerContainer.appendChild(renderer.domElement);
 
@@ -115,49 +120,6 @@ const scientificToWorldQuaternion = scientificSpaceGroup.getWorldQuaternion(
   new THREE.Quaternion()
 );
 
-const axisWidgetScene = new THREE.Scene();
-const axisWidgetCamera = new THREE.PerspectiveCamera(42, 1, 0.1, 20);
-const axisWidgetGroup = new THREE.Group();
-axisWidgetGroup.name = "axis-widget-group";
-axisWidgetScene.add(axisWidgetGroup);
-const AXIS_WIDGET_FIXED_SIZE = 96;
-const AXIS_WIDGET_ANIMATION_MS = 220;
-let axisWidgetHideTimer = 0;
-let axisWidgetShowFrame = 0;
-
-const axisWidgetContainer = document.createElement("div");
-axisWidgetContainer.className = "axis-widget-overlay";
-axisWidgetContainer.setAttribute("aria-hidden", "true");
-axisWidgetContainer.style.position = "fixed";
-axisWidgetContainer.style.top = "24px";
-axisWidgetContainer.style.left = "24px";
-axisWidgetContainer.style.width = `${AXIS_WIDGET_FIXED_SIZE}px`;
-axisWidgetContainer.style.height = `${AXIS_WIDGET_FIXED_SIZE}px`;
-axisWidgetContainer.style.boxSizing = "border-box";
-axisWidgetContainer.style.padding = "10px";
-axisWidgetContainer.style.border = "1px solid rgba(192, 208, 220, 0.92)";
-axisWidgetContainer.style.borderRadius = "18px";
-axisWidgetContainer.style.background = "rgba(255, 255, 255, 0.86)";
-axisWidgetContainer.style.boxShadow = "0 16px 30px rgba(17, 45, 69, 0.14)";
-axisWidgetContainer.style.backdropFilter = "blur(10px)";
-axisWidgetContainer.style.overflow = "hidden";
-axisWidgetContainer.style.pointerEvents = "none";
-axisWidgetContainer.style.zIndex = "30";
-axisWidgetContainer.style.display = "none";
-
-const axisWidgetRenderer = new THREE.WebGLRenderer({
-  antialias: true,
-  alpha: true
-});
-axisWidgetRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-axisWidgetRenderer.outputColorSpace = THREE.SRGBColorSpace;
-axisWidgetRenderer.domElement.style.display = "block";
-axisWidgetRenderer.domElement.style.width = "100%";
-axisWidgetRenderer.domElement.style.height = "100%";
-axisWidgetRenderer.domElement.style.pointerEvents = "none";
-axisWidgetContainer.appendChild(axisWidgetRenderer.domElement);
-document.body.appendChild(axisWidgetContainer);
-
 const bondAxis = new THREE.Vector3(0, 1, 0);
 const scientificXAxis = new THREE.Vector3(
   axisConvention.axes.x.vector.x,
@@ -174,18 +136,41 @@ const scientificZAxis = new THREE.Vector3(
   axisConvention.axes.z.vector.y,
   axisConvention.axes.z.vector.z
 );
+const AXIS_VISUAL_COLORS = Object.freeze({
+  x: { color: 0xc85d4f, colorText: "#c85d4f" },
+  y: { color: 0x4b8f78, colorText: "#4b8f78" },
+  z: { color: 0x3d6fa7, colorText: "#3d6fa7" }
+});
 
 let currentCrystalId = getDefaultCrystalId();
 let currentCrystal = getCrystalById(currentCrystalId);
 let selectedViewId = "default";
 let viewLockEnabled = false;
 let autoRotateEnabled = true;
-let showAxesEnabled = false;
+let showCellAxesEnabled = false;
 let showAuxiliaryAtomsEnabled = true;
 let showCoordinationEnabled = false;
 let showCountEnabled = false;
+let selectedCountGroupId = "all";
+let hoveredCountGroupId = null;
 let currentModelRefs = createEmptyModelRefs();
 let cameraTransition = null;
+const atomContributionRenderer = new AtomContributionRenderer({
+  attachTarget: crystalOrientationGroup
+});
+const effectiveAtomRenderer = new EffectiveAtomRenderer({
+  attachTarget: crystalOrientationGroup
+});
+const effectiveCountingRaycaster = new THREE.Raycaster();
+const effectiveCountingPointer = new THREE.Vector2();
+const atomContributionInteraction = new AtomContributionInteraction({
+  domElement: renderer.domElement,
+  camera,
+  getInteractiveObjects: getAtomContributionInteractiveObjects,
+  onHoverAtom: handleAtomContributionHover,
+  onSelectAtom: handleAtomContributionSelect,
+  onClearSelection: clearAtomContributionInteraction
+});
 
 function createEmptyModelRefs() {
   return {
@@ -194,6 +179,7 @@ function createEmptyModelRefs() {
     atomGroup: null,
     auxiliaryGroup: null,
     coordinationGroup: null,
+    internalAxisGroup: null,
     particleMeshesByIndex: [],
     connectionMeshesByIndex: []
   };
@@ -226,8 +212,6 @@ function clearGroup(group) {
 
   group.clear();
 }
-
-buildAxisWidget();
 
 function resizeRenderer() {
   const width = viewerContainer.clientWidth;
@@ -304,73 +288,61 @@ function createAxisLabelSprite(label, color) {
   return sprite;
 }
 
-function buildAxisWidget() {
-  clearGroup(axisWidgetGroup);
-  axisWidgetGroup.quaternion.copy(scientificToWorldQuaternion);
+function createAtomContributionMetadataByParticleIndex(crystal) {
+  const metadataByParticleIndex = new Map();
 
-  const axisDefinitions = [
-    {
-      label: axisConvention.axes.x.label,
-      direction: scientificXAxis,
-      color: 0xc85d4f,
-      colorText: "#c85d4f"
-    },
-    {
-      label: axisConvention.axes.y.label,
-      direction: scientificYAxis,
-      color: 0x4b8f78,
-      colorText: "#4b8f78"
-    },
-    {
-      label: axisConvention.axes.z.label,
-      direction: scientificZAxis,
-      color: 0x3d6fa7,
-      colorText: "#3d6fa7"
-    }
-  ];
+  (crystal?.effectiveAtomCounting?.groups ?? []).forEach((group) => {
+    (group.atomRefs ?? []).forEach((atomRef, groupAtomIndex) => {
+      if (!Number.isInteger(atomRef) || metadataByParticleIndex.has(atomRef)) {
+        return;
+      }
 
-  axisDefinitions.forEach((axis) => {
-    const arrow = new THREE.ArrowHelper(
-      axis.direction.clone().normalize(),
-      new THREE.Vector3(),
-      1.02,
-      axis.color,
-      0.18,
-      0.1
-    );
-    arrow.line.material.depthTest = false;
-    arrow.cone.material.depthTest = false;
-    axisWidgetGroup.add(arrow);
-
-    const labelSprite = createAxisLabelSprite(axis.label, axis.colorText);
-    labelSprite.position.copy(axis.direction.clone().normalize().multiplyScalar(1.26));
-    axisWidgetGroup.add(labelSprite);
+      metadataByParticleIndex.set(atomRef, {
+        type: "atom",
+        atomId:
+          group.atomIds?.[groupAtomIndex] ??
+          `${group.id}-atom-${atomRef}-${groupAtomIndex}`,
+        species: group.species,
+        positionType: group.positionType,
+        groupId: group.id,
+        contribution: group.contribution,
+        contributionText: group.contributionText ?? group.contributionLabel,
+        sharedBy: group.sharedBy,
+        count: group.count,
+        totalContribution: group.totalContribution ?? group.total,
+        formulaText: group.formulaText ?? group.equation,
+        selectable: true
+      });
+    });
   });
 
-  const originSphere = new THREE.Mesh(
-    new THREE.SphereGeometry(0.07, 18, 18),
-    new THREE.MeshBasicMaterial({
-      color: 0x40505f,
-      depthTest: false,
-      depthWrite: false
-    })
-  );
-  axisWidgetGroup.add(originSphere);
+  return metadataByParticleIndex;
 }
 
-function syncAxisWidgetCamera(widgetWidth = 176, widgetHeight = 176) {
-  const cameraOffset = camera.position.clone().sub(controls.target);
-
-  if (cameraOffset.lengthSq() <= 1e-6) {
-    cameraOffset.set(2.6, 2.4, 3.1);
-  }
-
-  axisWidgetCamera.position.copy(cameraOffset.setLength(5.6));
-  axisWidgetCamera.up.copy(camera.up);
-  axisWidgetCamera.lookAt(0, 0, 0);
-  axisWidgetCamera.aspect =
-    widgetWidth > 0 && widgetHeight > 0 ? widgetWidth / widgetHeight : 1;
-  axisWidgetCamera.updateProjectionMatrix();
+function getAxisVisualDefinitions() {
+  return [
+    {
+      key: "x",
+      label: axisConvention.axes.x.label,
+      direction: scientificXAxis.clone(),
+      color: AXIS_VISUAL_COLORS.x.color,
+      colorText: AXIS_VISUAL_COLORS.x.colorText
+    },
+    {
+      key: "y",
+      label: axisConvention.axes.y.label,
+      direction: scientificYAxis.clone(),
+      color: AXIS_VISUAL_COLORS.y.color,
+      colorText: AXIS_VISUAL_COLORS.y.colorText
+    },
+    {
+      key: "z",
+      label: axisConvention.axes.z.label,
+      direction: scientificZAxis.clone(),
+      color: AXIS_VISUAL_COLORS.z.color,
+      colorText: AXIS_VISUAL_COLORS.z.colorText
+    }
+  ];
 }
 
 function getFloatingPanelLayoutRect(panelElement) {
@@ -410,115 +382,6 @@ function getFloatingPanelLayoutRect(panelElement) {
   return null;
 }
 
-function getAxisWidgetLayout() {
-  const width = viewerContainer.clientWidth;
-  const height = viewerContainer.clientHeight;
-
-  if (!width || !height) {
-    return null;
-  }
-
-  const inset = width <= 640 ? 10 : width <= 900 ? 12 : 24;
-  const widgetSize = AXIS_WIDGET_FIXED_SIZE;
-  const atomLegendElement = document.getElementById("atom-legend-floating");
-  const floatingPanelElement = document.getElementById("floating-ui");
-  const axisSide = atomLegendElement?.classList.contains("is-right")
-    ? "right"
-    : atomLegendElement?.classList.contains("is-left")
-      ? "left"
-      : floatingPanelElement?.classList.contains("is-left")
-        ? "right"
-        : "left";
-  const left =
-    axisSide === "left" ? inset : window.innerWidth - inset - widgetSize;
-
-  return {
-    top: inset,
-    left,
-    side: axisSide,
-    widgetWidth: widgetSize,
-    widgetHeight: widgetSize
-  };
-}
-
-function showAxisWidgetContainer() {
-  if (axisWidgetHideTimer) {
-    window.clearTimeout(axisWidgetHideTimer);
-    axisWidgetHideTimer = 0;
-  }
-
-  axisWidgetContainer.setAttribute("aria-hidden", "false");
-
-  if (axisWidgetContainer.style.display !== "block") {
-    axisWidgetContainer.style.display = "block";
-    axisWidgetContainer.classList.remove("is-visible");
-    axisWidgetContainer.getBoundingClientRect();
-  }
-
-  if (
-    !axisWidgetContainer.classList.contains("is-visible") &&
-    !axisWidgetShowFrame
-  ) {
-    axisWidgetShowFrame = window.requestAnimationFrame(() => {
-      axisWidgetShowFrame = 0;
-
-      if (showAxesEnabled) {
-        axisWidgetContainer.classList.add("is-visible");
-      }
-    });
-  }
-}
-
-function hideAxisWidgetContainer() {
-  if (axisWidgetShowFrame) {
-    window.cancelAnimationFrame(axisWidgetShowFrame);
-    axisWidgetShowFrame = 0;
-  }
-
-  axisWidgetContainer.setAttribute("aria-hidden", "true");
-  axisWidgetContainer.classList.remove("is-visible");
-
-  if (axisWidgetContainer.style.display === "none" || axisWidgetHideTimer) {
-    return;
-  }
-
-  axisWidgetHideTimer = window.setTimeout(() => {
-    axisWidgetHideTimer = 0;
-
-    if (!showAxesEnabled) {
-      axisWidgetContainer.style.display = "none";
-    }
-  }, AXIS_WIDGET_ANIMATION_MS + 40);
-}
-
-function renderAxisWidget() {
-  if (!showAxesEnabled) {
-    hideAxisWidgetContainer();
-    return;
-  }
-
-  const layout = getAxisWidgetLayout();
-
-  if (!layout) {
-    hideAxisWidgetContainer();
-    return;
-  }
-
-  const { left, top, side, widgetWidth, widgetHeight } = layout;
-
-  syncAxisWidgetCamera(widgetWidth, widgetHeight);
-  axisWidgetContainer.style.top = `${top}px`;
-  axisWidgetContainer.style.width = `${widgetWidth}px`;
-  axisWidgetContainer.style.height = `${widgetHeight}px`;
-  axisWidgetContainer.style.left = `${left}px`;
-  axisWidgetContainer.style.right = "auto";
-  axisWidgetContainer.classList.toggle("is-left", side === "left");
-  axisWidgetContainer.classList.toggle("is-right", side === "right");
-  axisWidgetContainer.dataset.side = side;
-  showAxisWidgetContainer();
-  axisWidgetRenderer.setSize(widgetWidth, widgetHeight, false);
-  axisWidgetRenderer.render(axisWidgetScene, axisWidgetCamera);
-}
 
 function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
   if (requestedViewId === "default") {
@@ -532,6 +395,8 @@ function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
       label: standardViewDirections.default.label,
       direction: crystalDefaultView.direction ?? inheritedView.direction,
       up: crystalDefaultView.up ?? inheritedView.up,
+      targetOffset:
+        crystalDefaultView.targetOffset ?? inheritedView.targetOffset ?? null,
       distanceScale:
         crystalDefaultView.distanceScale ?? inheritedView.distanceScale ?? 2.12,
       description:
@@ -552,11 +417,77 @@ function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
     label: explicitView.label,
     direction: explicitView.direction,
     up: explicitView.up,
+    targetOffset: explicitView.targetOffset ?? null,
     distanceScale: explicitView.distanceScale ?? 2.12,
     description: explicitView.description,
     rationale: "",
     referenceViewId: explicitView.id
   };
+}
+
+function getViewFocusTargetLocalPoint(viewDefinition, crystal = currentCrystal) {
+  if (!viewDefinition?.targetOffset) {
+    return null;
+  }
+
+  const targetOffset = configVectorToVector3(viewDefinition.targetOffset);
+  const clampOffset = (value) => THREE.MathUtils.clamp(value ?? 0, -1, 1);
+  const cellFrame = crystal?.cellFrame;
+
+  if (cellFrame?.shape === "box") {
+    const halfSize = configVectorToVector3(cellFrame.size, { x: 2, y: 2, z: 2 })
+      .multiplyScalar(0.5);
+
+    return new THREE.Vector3(
+      halfSize.x * clampOffset(targetOffset.x),
+      halfSize.y * clampOffset(targetOffset.y),
+      halfSize.z * clampOffset(targetOffset.z)
+    );
+  }
+
+  if (
+    cellFrame?.shape === "hexagonal-prism" &&
+    Array.isArray(cellFrame.baseVertices) &&
+    cellFrame.baseVertices.length
+  ) {
+    const planarDirection = new THREE.Vector2(targetOffset.x, targetOffset.y);
+    let focusX = 0;
+    let focusY = 0;
+
+    if (planarDirection.lengthSq() > 1e-6) {
+      planarDirection.normalize();
+
+      let bestScore = -Infinity;
+
+      cellFrame.baseVertices.forEach((vertex) => {
+        const candidate = new THREE.Vector2(vertex.x ?? 0, vertex.y ?? 0);
+        const score = candidate.dot(planarDirection);
+
+        if (score > bestScore) {
+          bestScore = score;
+          focusX = candidate.x;
+          focusY = candidate.y;
+        }
+      });
+    }
+
+    const zMin =
+      cellFrame.zMin ??
+      (Number.isFinite(cellFrame.height) ? -cellFrame.height * 0.5 : -1);
+    const zMax =
+      cellFrame.zMax ??
+      (Number.isFinite(cellFrame.height) ? cellFrame.height * 0.5 : 1);
+    const zCenter = (zMin + zMax) * 0.5;
+    const halfHeight = (zMax - zMin) * 0.5;
+
+    return new THREE.Vector3(
+      focusX,
+      focusY,
+      zCenter + halfHeight * clampOffset(targetOffset.z)
+    );
+  }
+
+  return null;
 }
 
 function createCameraPoseForView(target, viewDefinition) {
@@ -587,10 +518,17 @@ function createCameraPoseForView(target, viewDefinition) {
     .normalize();
   const distance =
     (radius / Math.tan(halfFov)) * (viewDefinition.distanceScale ?? 2.12);
+  const focusTargetLocal = getViewFocusTargetLocalPoint(viewDefinition);
+
+  target.updateMatrixWorld(true);
+
+  const focusTarget = focusTargetLocal
+    ? target.localToWorld(focusTargetLocal.clone())
+    : sphere.center.clone();
 
   return {
-    position: sphere.center.clone().addScaledVector(directionWorld, distance),
-    target: sphere.center.clone(),
+    position: focusTarget.clone().addScaledVector(directionWorld, distance),
+    target: focusTarget,
     up: upWorld,
     near: Math.max(0.1, distance / 28),
     far: Math.max(50, distance * 8),
@@ -836,7 +774,161 @@ function createModelLayerGroup(name, includeInFrame = true) {
   return group;
 }
 
-function createParticleMesh(particle) {
+function getCellFrameLocalBounds(cellFrame = {}) {
+  if (
+    cellFrame.shape === "hexagonal-prism" &&
+    Array.isArray(cellFrame.baseVertices) &&
+    cellFrame.baseVertices.length >= 3
+  ) {
+    const xValues = cellFrame.baseVertices.map((vertex) => vertex.x ?? 0);
+    const yValues = cellFrame.baseVertices.map((vertex) => vertex.y ?? 0);
+    const zMin =
+      cellFrame.zMin ??
+      (Number.isFinite(cellFrame.height) ? -cellFrame.height * 0.5 : -1);
+    const zMax =
+      cellFrame.zMax ??
+      (Number.isFinite(cellFrame.height) ? cellFrame.height * 0.5 : 1);
+
+    return {
+      min: new THREE.Vector3(
+        Math.min(...xValues),
+        Math.min(...yValues),
+        zMin
+      ),
+      max: new THREE.Vector3(
+        Math.max(...xValues),
+        Math.max(...yValues),
+        zMax
+      )
+    };
+  }
+
+  const size = configVectorToVector3(cellFrame.size, { x: 2, y: 2, z: 2 });
+  const halfSize = size.multiplyScalar(0.5);
+
+  return {
+    min: halfSize.clone().multiplyScalar(-1),
+    max: halfSize.clone()
+  };
+}
+
+function getCrystalInternalAxisLengths(crystal, bounds, origin) {
+  const mainParticleRadii = (crystal?.particles ?? [])
+    .filter(
+      (particle) =>
+        particle?.visible !== false &&
+        !particle?.metadata?.isAuxiliary &&
+        !particle?.metadata?.isDiamondHelper &&
+        Number.isFinite(particle?.radius)
+    )
+    .map((particle) => particle.radius);
+  const maxParticleRadius = mainParticleRadii.length
+    ? Math.max(...mainParticleRadii)
+    : 0.18;
+  const span = bounds.max.clone().sub(bounds.min);
+  const positiveReach = bounds.max.clone().sub(origin);
+  const overflowMargin = Math.max(
+    maxParticleRadius * 1.35,
+    Math.min(span.x, span.y, span.z) * 0.14,
+    0.24
+  );
+  const minimumRequiredLength = maxParticleRadius * 2.24;
+
+  return {
+    x: Math.max(minimumRequiredLength, positiveReach.x + overflowMargin),
+    y: Math.max(minimumRequiredLength, positiveReach.y + overflowMargin),
+    z: Math.max(minimumRequiredLength, positiveReach.z + overflowMargin),
+    overflowMargin,
+    maxParticleRadius
+  };
+}
+
+function getCrystalInternalAxisOrigin(crystal, bounds) {
+  const cellFrame = crystal?.cellFrame ?? {};
+
+  if (cellFrame.shape === "hexagonal-prism") {
+    // The hexagonal prism has no atom at the shared back-left-bottom box corner,
+    // so we use that external corner to keep the positive-axis convention
+    // consistent with the cubic cells.
+    return bounds.min.clone();
+  }
+
+  return bounds.min.clone();
+}
+
+function buildCrystalAxisGroup(crystal) {
+  const axisGroup = createModelLayerGroup("crystal-internal-axes", false);
+  const bounds = getCellFrameLocalBounds(crystal.cellFrame ?? {});
+  const origin = getCrystalInternalAxisOrigin(crystal, bounds);
+  const axisLengths = getCrystalInternalAxisLengths(crystal, bounds, origin);
+  const maxAxisLength = Math.max(axisLengths.x, axisLengths.y, axisLengths.z);
+  const labelScale = THREE.MathUtils.clamp(maxAxisLength * 0.18, 0.2, 0.28);
+
+  getAxisVisualDefinitions().forEach((axis) => {
+    const direction = axis.direction.clone().normalize();
+    const axisLength = axisLengths[axis.key];
+    const headLength = Math.max(0.12, axisLength * 0.11);
+    const headWidth = Math.max(0.08, axisLength * 0.08);
+    const labelDistance =
+      axisLength + Math.max(0.12, axisLengths.overflowMargin * 0.52);
+    const arrow = new THREE.ArrowHelper(
+      direction,
+      origin,
+      axisLength,
+      axis.color,
+      headLength,
+      headWidth
+    );
+
+    arrow.line.material.transparent = true;
+    arrow.line.material.opacity = 0.96;
+    arrow.line.material.depthTest = false;
+    arrow.line.material.depthWrite = false;
+    arrow.line.renderOrder = 9;
+    arrow.cone.material.transparent = true;
+    arrow.cone.material.opacity = 0.98;
+    arrow.cone.material.depthTest = false;
+    arrow.cone.material.depthWrite = false;
+    arrow.cone.renderOrder = 10;
+    markFrameInclusion(arrow.line, false);
+    markFrameInclusion(arrow.cone, false);
+    axisGroup.add(arrow);
+
+    const labelSprite = createAxisLabelSprite(axis.label, axis.colorText);
+    labelSprite.scale.set(labelScale, labelScale, labelScale);
+    labelSprite.position.copy(
+      origin.clone().add(direction.multiplyScalar(labelDistance))
+    );
+    labelSprite.renderOrder = 11;
+    markFrameInclusion(labelSprite, false);
+    axisGroup.add(labelSprite);
+  });
+
+  const originSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(
+      Math.max(0.05, axisLengths.maxParticleRadius * 0.34),
+      18,
+      18
+    ),
+    new THREE.MeshBasicMaterial({
+      color: 0x40505f,
+      transparent: true,
+      opacity: 0.94,
+      depthTest: false,
+      depthWrite: false
+    })
+  );
+  originSphere.position.copy(origin);
+  originSphere.renderOrder = 11;
+  markFrameInclusion(originSphere, false);
+  axisGroup.add(originSphere);
+
+  axisGroup.visible = showCellAxesEnabled;
+
+  return axisGroup;
+}
+
+function createParticleMesh(particle, particleIndex, atomContributionMetadata = null) {
   if (particle.visible === false) {
     return null;
   }
@@ -860,6 +952,20 @@ function createParticleMesh(particle) {
   mesh.name = particle.label || particle.category;
   mesh.renderOrder = 2;
   mesh.userData = {
+    type: "atom",
+    particleIndex,
+    atomId:
+      atomContributionMetadata?.atomId ??
+      `${particle.category ?? "particle"}-${particleIndex}`,
+    species: atomContributionMetadata?.species ?? particle.metadata?.species ?? "",
+    positionType: atomContributionMetadata?.positionType ?? "",
+    groupId: atomContributionMetadata?.groupId ?? "",
+    contribution: atomContributionMetadata?.contribution ?? null,
+    contributionText: atomContributionMetadata?.contributionText ?? "",
+    sharedBy: atomContributionMetadata?.sharedBy ?? null,
+    totalContribution: atomContributionMetadata?.totalContribution ?? null,
+    formulaText: atomContributionMetadata?.formulaText ?? "",
+    selectable: Boolean(atomContributionMetadata?.selectable),
     label: particle.label,
     category: particle.category,
     baseColor: particle.color,
@@ -1189,12 +1295,16 @@ function createCrystalModel(crystal) {
   const atomGroup = createModelLayerGroup("crystal-atoms");
   const auxiliaryGroup = createModelLayerGroup("crystal-auxiliary");
   const coordinationGroup = buildCoordinationOverlay(crystal);
+  const internalAxisGroup = buildCrystalAxisGroup(crystal);
+  const atomContributionMetadataByParticleIndex =
+    createAtomContributionMetadataByParticleIndex(crystal);
   const modelRefs = {
     frameGroup,
     bondGroup,
     atomGroup,
     auxiliaryGroup,
     coordinationGroup,
+    internalAxisGroup,
     particleMeshesByIndex: [],
     connectionMeshesByIndex: []
   };
@@ -1206,6 +1316,7 @@ function createCrystalModel(crystal) {
   modelGroup.add(auxiliaryGroup);
   modelGroup.add(atomGroup);
   modelGroup.add(coordinationGroup);
+  modelGroup.add(internalAxisGroup);
 
   if (Array.isArray(crystal.connections)) {
     crystal.connections.forEach((connection, index) => {
@@ -1225,7 +1336,11 @@ function createCrystalModel(crystal) {
   }
 
   crystal.particles.forEach((particle, index) => {
-    const mesh = createParticleMesh(particle);
+    const mesh = createParticleMesh(
+      particle,
+      index,
+      atomContributionMetadataByParticleIndex.get(index)
+    );
 
     if (!mesh) {
       return;
@@ -1251,7 +1366,10 @@ function hasCoordinationDisplay(crystal) {
 }
 
 function hasCountingDisplay(crystal) {
-  return Boolean(crystal.supportsCountingDisplay && crystal.countingInfo);
+  return Boolean(
+    crystal.supportsCountingDisplay &&
+      (crystal.countingInfo || crystal.effectiveAtomCounting)
+  );
 }
 
 function getSupportText(crystal) {
@@ -1263,9 +1381,9 @@ function getSupportText(crystal) {
   const coordinationSupport = hasCoordinationDisplay(crystal)
     ? "支持代表性配位显示"
     : "当前不支持配位显示";
-  const countSupport = hasCountingDisplay(crystal)
-    ? "支持计数显示"
-    : "当前无计数显示";
+  const countSupport = hasEffectiveCounting(crystal)
+    ? "支持模型内贡献标注"
+    : "当前无模型内贡献标注";
 
   return `${bondSupport} / ${auxiliarySupport} / ${coordinationSupport} / ${countSupport}`;
 }
@@ -1301,9 +1419,100 @@ function updateCrystalInfo(crystal) {
 }
 
 function updateKnowledgePanels(crystal) {
-  renderCoordinationPanel(crystal);
-  renderCountingPanel(crystal);
+  renderCountingPanel(crystal, getCountingPanelRenderState(crystal));
   renderAtomLegend(crystal);
+}
+
+function hasEffectiveCounting(crystal) {
+  return Boolean(
+    crystal?.effectiveAtomCounting?.enabled &&
+      crystal.effectiveAtomCounting.groups?.length
+  );
+}
+
+function getAtomContributionInteractiveObjects() {
+  if (!showCountEnabled || !hasEffectiveCounting(currentCrystal)) {
+    return [];
+  }
+
+  return currentModelRefs.particleMeshesByIndex.filter(
+    (mesh) => mesh?.userData?.selectable && mesh.visible !== false
+  );
+}
+
+function clearAtomContributionInteraction({ immediate = false } = {}) {
+  atomContributionRenderer.clearInteraction({ immediate });
+}
+
+function handleAtomContributionHover(mesh) {
+  atomContributionRenderer.setHoverAtom(mesh);
+}
+
+function handleAtomContributionSelect(mesh) {
+  if (!showCountEnabled || !hasEffectiveCounting(currentCrystal)) {
+    clearAtomContributionInteraction();
+    return;
+  }
+
+  const group = atomContributionRenderer.selectAtom(mesh);
+
+  if (!group) {
+    return;
+  }
+
+  selectedCountGroupId = group.id;
+  uiController?.setSelectedCountGroup?.(selectedCountGroupId);
+  setPanelStatus(`${group.label}：${group.formulaText ?? group.equation}`);
+}
+
+function getCountingGroupOptions(crystal) {
+  if (!hasEffectiveCounting(crystal)) {
+    return [{ id: "all", label: "全部显示" }];
+  }
+
+  return [
+    { id: "all", label: "全部显示" },
+    ...crystal.effectiveAtomCounting.groups.map((group) => ({
+      id: group.id,
+      label: group.label
+    }))
+  ];
+}
+
+function resolveSelectedCountGroupId(crystal, requestedGroupId = selectedCountGroupId) {
+  if (!hasEffectiveCounting(crystal)) {
+    return "all";
+  }
+
+  if (requestedGroupId === "all") {
+    return "all";
+  }
+
+  return crystal.effectiveAtomCounting.groups.some(
+    (group) => group.id === requestedGroupId
+  )
+    ? requestedGroupId
+    : "all";
+}
+
+function getCountingPanelRenderState(crystal = currentCrystal) {
+  const detailGroupId =
+    hoveredCountGroupId ||
+    (selectedCountGroupId !== "all" ? selectedCountGroupId : null);
+
+  return {
+    enabled: showCountEnabled && hasEffectiveCounting(crystal),
+    selectedGroupId: selectedCountGroupId,
+    detailGroupId
+  };
+}
+
+function refreshCountingPanel() {
+  if (!currentCrystal) {
+    return;
+  }
+
+  renderCountingPanel(currentCrystal, getCountingPanelRenderState(currentCrystal));
 }
 
 function getFrameBounds(target) {
@@ -1385,14 +1594,112 @@ function setAutoRotateState(nextValue, { syncUi = true } = {}) {
   }
 }
 
-function setShowAxesState(nextValue, { syncUi = true } = {}) {
-  showAxesEnabled = Boolean(nextValue);
+function setShowCellAxesState(nextValue, { syncUi = true } = {}) {
+  showCellAxesEnabled = Boolean(nextValue);
 
   if (syncUi) {
-    uiController?.setShowAxes(showAxesEnabled);
+    uiController?.setShowCellAxes(showCellAxesEnabled);
   }
 
-  renderAxisWidget();
+  applyInternalAxisVisibility(showCellAxesEnabled);
+}
+
+function getEffectiveCountingGroupById(
+  crystal = currentCrystal,
+  groupId = selectedCountGroupId
+) {
+  return (
+    crystal?.effectiveAtomCounting?.groups?.find((group) => group.id === groupId) ??
+    null
+  );
+}
+
+function rebuildEffectiveCountingOverlay(crystal = currentCrystal) {
+  hoveredCountGroupId = null;
+  renderer.domElement.style.cursor = "";
+  effectiveAtomRenderer.clear();
+  selectedCountGroupId = resolveSelectedCountGroupId(crystal, selectedCountGroupId);
+}
+
+function setSelectedCountGroupState(nextGroupId, { syncUi = true } = {}) {
+  selectedCountGroupId = resolveSelectedCountGroupId(currentCrystal, nextGroupId);
+  effectiveAtomRenderer.setActiveGroup(selectedCountGroupId);
+
+  if (syncUi) {
+    uiController?.setSelectedCountGroup(selectedCountGroupId);
+  }
+
+  refreshCountingPanel();
+}
+
+function setHoveredCountGroupState(nextGroupId) {
+  const normalizedGroupId = nextGroupId || null;
+
+  if (hoveredCountGroupId === normalizedGroupId) {
+    return;
+  }
+
+  hoveredCountGroupId = normalizedGroupId;
+  effectiveAtomRenderer.setHoverGroup(hoveredCountGroupId);
+  renderer.domElement.style.cursor = hoveredCountGroupId ? "pointer" : "";
+  refreshCountingPanel();
+}
+
+function getPointedEffectiveCountingGroupId(event) {
+  if (!showCountEnabled || !hasEffectiveCounting(currentCrystal)) {
+    return null;
+  }
+
+  const interactiveObjects = effectiveAtomRenderer.getInteractiveObjects();
+
+  if (!interactiveObjects.length) {
+    return null;
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+
+  if (rect.width <= 0 || rect.height <= 0) {
+    return null;
+  }
+
+  effectiveCountingPointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  effectiveCountingPointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  effectiveCountingRaycaster.setFromCamera(effectiveCountingPointer, camera);
+
+  const intersections = effectiveCountingRaycaster.intersectObjects(
+    interactiveObjects,
+    false
+  );
+
+  if (!intersections.length) {
+    return null;
+  }
+
+  return effectiveAtomRenderer.getGroupIdFromObject(intersections[0].object);
+}
+
+function handleEffectiveCountingPointerMove(event) {
+  setHoveredCountGroupState(getPointedEffectiveCountingGroupId(event));
+}
+
+function handleEffectiveCountingPointerLeave() {
+  setHoveredCountGroupState(null);
+}
+
+function handleEffectiveCountingClick(event) {
+  const groupId = getPointedEffectiveCountingGroupId(event);
+
+  if (!groupId) {
+    return;
+  }
+
+  setSelectedCountGroupState(groupId, { syncUi: true });
+
+  const group = getEffectiveCountingGroupById(currentCrystal, groupId);
+
+  if (group) {
+    setPanelStatus(`当前聚焦：${group.label}（${group.equation}）。`);
+  }
 }
 
 function setViewLockState(nextValue, { syncUi = true, animateToView = true } = {}) {
@@ -1551,26 +1858,49 @@ function applyCoordinationVisibility(crystal, enabled) {
     currentModelRefs.coordinationGroup.children.length > 0;
 }
 
-function applyCoordinationPanelVisibility(crystal, enabled) {
-  setCoordinationPanelVisibility(enabled && hasCoordinationDisplay(crystal));
+function applyInternalAxisVisibility(enabled) {
+  if (!currentModelRefs.internalAxisGroup) {
+    return;
+  }
+
+  currentModelRefs.internalAxisGroup.visible = Boolean(enabled);
 }
 
 function applyCountingPanelVisibility(crystal, enabled) {
-  setCountingPanelVisibility(enabled && hasCountingDisplay(crystal));
+  setCountingPanelVisibility(false);
+}
+
+function applyEffectiveCountingVisibility(crystal, enabled) {
+  const shouldEnableContributionInteraction =
+    Boolean(enabled) && hasEffectiveCounting(crystal);
+
+  hoveredCountGroupId = null;
+  atomContributionInteraction.setEnabled(shouldEnableContributionInteraction);
+
+  if (!shouldEnableContributionInteraction) {
+    clearAtomContributionInteraction({ immediate: true });
+  }
+
+  if (atomContributionHintElement) {
+    atomContributionHintElement.hidden = !shouldEnableContributionInteraction;
+  }
+
+  effectiveAtomRenderer.clear();
 }
 
 function applyCrystalDisplayState() {
   applyBaseModelVisualState(currentCrystal, showCoordinationEnabled);
   applyAuxiliaryVisibility(currentCrystal);
   applyCoordinationVisibility(currentCrystal, showCoordinationEnabled);
+  applyEffectiveCountingVisibility(currentCrystal, showCountEnabled);
+  applyInternalAxisVisibility(showCellAxesEnabled);
   updateKnowledgePanels(currentCrystal);
-  applyCoordinationPanelVisibility(currentCrystal, showCoordinationEnabled);
   applyCountingPanelVisibility(currentCrystal, showCountEnabled);
 }
 
 function getLoadStatusMessage(crystal) {
-  if (showCountEnabled && hasCountingDisplay(crystal)) {
-    return crystal.countingInfo?.countingSummary ?? `已显示 ${crystal.name} 的计数说明。`;
+  if (showCountEnabled && hasEffectiveCounting(crystal)) {
+    return `已加载 ${crystal.name}，原子贡献标注已开启。`;
   }
 
   if (showCoordinationEnabled && hasCoordinationDisplay(crystal)) {
@@ -1589,9 +1919,11 @@ const uiController = setupUI({
   initialState: {
     currentCrystalId,
     selectedViewId,
+    selectedCountGroupId,
+    countGroupOptions: getCountingGroupOptions(currentCrystal),
     viewLocked: viewLockEnabled,
     autoRotate: autoRotateEnabled,
-    showAxes: showAxesEnabled,
+    showCellAxes: showCellAxesEnabled,
     showAuxiliary: showAuxiliaryAtomsEnabled,
     showCoordination: false,
     showCount: false
@@ -1600,6 +1932,7 @@ const uiController = setupUI({
     loadCrystal(nextCrystalId);
   },
   onViewChange(nextViewId) {
+    clearAtomContributionInteraction();
     const resolvedView = applySelectedView({
       viewId: nextViewId,
       animate: true
@@ -1630,11 +1963,28 @@ const uiController = setupUI({
     setAutoRotateState(nextValue, { syncUi: true });
     setPanelStatus(nextValue ? "自动旋转已开启。" : "自动旋转已暂停。");
   },
-  onShowAxesChange(nextValue) {
-    setShowAxesState(nextValue, { syncUi: true });
-    setPanelStatus(nextValue ? "已显示统一坐标轴。" : "已隐藏统一坐标轴。");
+  onShowCellAxesChange(nextValue) {
+    clearAtomContributionInteraction();
+    setShowCellAxesState(nextValue, { syncUi: true });
+    setPanelStatus(
+      nextValue
+        ? "已显示晶胞内统一坐标轴。"
+        : "已隐藏晶胞内统一坐标轴。"
+    );
+  },
+  onCountGroupChange(nextGroupId) {
+    setSelectedCountGroupState(nextGroupId, { syncUi: false });
+    const group = getEffectiveCountingGroupById(currentCrystal, selectedCountGroupId);
+
+    if (selectedCountGroupId === "all" || !group) {
+      setPanelStatus("已切换为查看全部贡献分组。");
+      return;
+    }
+
+    setPanelStatus(`已切换为查看 ${group.label}。`);
   },
   onShowAuxiliaryChange(nextValue) {
+    clearAtomContributionInteraction();
     if (!currentCrystal.supportsAuxiliaryAtoms) {
       uiController.setShowAuxiliary(showAuxiliaryAtomsEnabled);
       setPanelStatus("当前晶胞没有可切换的辅助原子。");
@@ -1650,6 +2000,7 @@ const uiController = setupUI({
     );
   },
   onShowCoordinationChange(nextValue) {
+    clearAtomContributionInteraction();
     if (!hasCoordinationDisplay(currentCrystal)) {
       showCoordinationEnabled = false;
       uiController.setShowCoordination(false);
@@ -1667,10 +2018,11 @@ const uiController = setupUI({
     );
   },
   onShowCountChange(nextValue) {
-    if (!hasCountingDisplay(currentCrystal)) {
+    clearAtomContributionInteraction();
+    if (!hasEffectiveCounting(currentCrystal)) {
       showCountEnabled = false;
       uiController.setShowCount(false);
-      setPanelStatus("当前晶胞暂不提供计数说明。");
+      setPanelStatus("当前晶胞暂不提供模型内贡献标注。");
       return;
     }
 
@@ -1678,9 +2030,8 @@ const uiController = setupUI({
     applyCrystalDisplayState();
     setPanelStatus(
       nextValue
-        ? currentCrystal.countingInfo?.countingSummary ??
-            `已显示 ${currentCrystal.name} 的计数说明。`
-        : `已隐藏 ${currentCrystal.name} 的计数说明。`
+        ? "原子贡献标注已开启：点按原子查看它对晶胞的贡献。"
+        : "原子贡献标注已关闭。"
     );
   }
 });
@@ -1688,7 +2039,7 @@ const uiController = setupUI({
 function syncCrystalUI(crystal) {
   const auxiliaryAvailable = Boolean(crystal.supportsAuxiliaryAtoms);
   const coordinationAvailable = hasCoordinationDisplay(crystal);
-  const countAvailable = hasCountingDisplay(crystal);
+  const countAvailable = hasEffectiveCounting(crystal);
 
   if (!coordinationAvailable) {
     showCoordinationEnabled = false;
@@ -1703,7 +2054,9 @@ function syncCrystalUI(crystal) {
   uiController.setViewLock(viewLockEnabled);
   uiController.setAutoRotate(autoRotateEnabled);
   uiController.setAutoRotateAvailability(!viewLockEnabled);
-  uiController.setShowAxes(showAxesEnabled);
+  uiController.setCountGroupOptions(getCountingGroupOptions(crystal));
+  uiController.setSelectedCountGroup(selectedCountGroupId);
+  uiController.setShowCellAxes(showCellAxesEnabled);
   uiController.setAuxiliaryAvailability(auxiliaryAvailable);
   uiController.setCoordinationAvailability(coordinationAvailable);
   uiController.setCountAvailability(countAvailable);
@@ -1724,8 +2077,11 @@ function syncCrystalUI(crystal) {
 function loadCrystal(crystalId) {
   currentCrystalId = crystalId;
   currentCrystal = getCrystalById(crystalId);
+  hoveredCountGroupId = null;
 
   stopCameraTransition();
+  atomContributionRenderer.clear({ immediate: true });
+  effectiveAtomRenderer.clear();
   clearGroup(crystalOrientationGroup);
   currentModelRefs = createEmptyModelRefs();
 
@@ -1734,6 +2090,14 @@ function loadCrystal(crystalId) {
 
   crystalOrientationGroup.add(modelGroup);
   applyCrystalOrientation(currentCrystal);
+  atomContributionRenderer.rebuild(
+    currentCrystal,
+    currentModelRefs.particleMeshesByIndex
+  );
+  atomContributionInteraction.setEnabled(
+    showCountEnabled && hasEffectiveCounting(currentCrystal)
+  );
+  rebuildEffectiveCountingOverlay(currentCrystal);
   setAutoRotateState(autoRotateEnabled, { syncUi: false });
   applySelectedView({
     viewId: selectedViewId,
@@ -1766,8 +2130,9 @@ function animate() {
   requestAnimationFrame(animate);
   updateCameraTransition(performance.now());
   controls.update();
+  atomContributionRenderer.update(performance.now());
+  effectiveAtomRenderer.update(performance.now());
   renderer.render(scene, camera);
-  renderAxisWidget();
 }
 
 animate();

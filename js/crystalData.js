@@ -204,9 +204,10 @@ export const standardViewDirections = {
     label: "侧棱观测",
     direction: { x: 1, y: 1, z: 0 },
     up: { x: 0, y: 0, z: 1 },
-    distanceScale: 2.08,
+    targetOffset: { x: 1, y: 1, z: 0 },
+    distanceScale: 2.34,
     description:
-      "沿 +X 与 +Y 的水平角平分方向观察，Z 保持向上；适合从立方晶胞竖直侧棱方向比较角点、面心或体心关系。"
+      "沿 +X 与 +Y 的水平角平分方向观察，并以位于 +X/+Y 象限的一条竖直侧棱中点为视线中心；Z 保持向上。"
   },
   top: {
     id: "top",
@@ -262,6 +263,9 @@ function normalizeDefaultView(view) {
     viewId: baseView.viewId ?? baseView.id ?? "isometric",
     direction: baseView.direction ? cloneVectorConfig(baseView.direction) : null,
     up: baseView.up ? cloneVectorConfig(baseView.up) : null,
+    targetOffset: baseView.targetOffset
+      ? cloneVectorConfig(baseView.targetOffset)
+      : null,
     distanceScale:
       Number.isFinite(baseView.distanceScale) ? baseView.distanceScale : null,
     description: baseView.description ?? "",
@@ -500,6 +504,124 @@ function createCountingInfo(info = {}) {
   };
 }
 
+function formatContributionFraction(value) {
+  const knownFractions = [
+    [1, "1"],
+    [1 / 2, "1/2"],
+    [1 / 4, "1/4"],
+    [1 / 6, "1/6"],
+    [1 / 8, "1/8"]
+  ];
+  const match = knownFractions.find(
+    ([candidate]) => Math.abs(candidate - value) <= 1e-6
+  );
+
+  if (match) {
+    return match[1];
+  }
+
+  if (Math.abs(value - Math.round(value)) <= 1e-6) {
+    return String(Math.round(value));
+  }
+
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatEffectiveCountValue(value) {
+  if (Math.abs(value - Math.round(value)) <= 1e-6) {
+    return String(Math.round(value));
+  }
+
+  return formatContributionFraction(value);
+}
+
+function createEffectiveAtomGroup(group = {}) {
+  const atomRefs = normalizeStringArray(
+    (group.atomRefs ?? []).map((value) => String(value))
+  )
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => Number.isInteger(value));
+  const count = Number.isFinite(group.count) ? group.count : atomRefs.length;
+  const contribution = Number.isFinite(group.contribution)
+    ? group.contribution
+    : 0;
+  const totalContribution = Number.isFinite(group.totalContribution)
+    ? group.totalContribution
+    : Number.isFinite(group.total)
+      ? group.total
+      : count * contribution;
+  const contributionText =
+    group.contributionText ??
+    group.contributionLabel ??
+    formatContributionFraction(contribution);
+  const totalLabel =
+    group.totalLabel ?? formatEffectiveCountValue(totalContribution);
+  const formulaText =
+    group.formulaText ??
+    group.equation ??
+    `${count} × ${contributionText} = ${totalLabel}`;
+  const atomIds = Array.isArray(group.atomIds) && group.atomIds.length
+    ? group.atomIds.map((value) => String(value))
+    : atomRefs.map((atomRef, index) => `${group.id ?? "effective"}-atom-${atomRef}-${index}`);
+  const sharedBy = Number.isFinite(group.sharedBy)
+    ? group.sharedBy
+    : contribution > 0
+      ? Math.round(1 / contribution)
+      : 0;
+
+  return {
+    id: group.id ?? "",
+    label: group.label ?? "",
+    species: group.species ?? "",
+    speciesLabel: group.speciesLabel ?? group.species ?? "",
+    count,
+    contribution,
+    contributionText,
+    contributionLabel: contributionText,
+    sharedBy,
+    totalContribution,
+    total: totalContribution,
+    totalLabel,
+    formulaText,
+    equation: formulaText,
+    positionType: group.positionType ?? "",
+    atomIds,
+    atomRefs,
+    explanation: group.explanation ?? "",
+    emphasisColor: group.emphasisColor ?? null
+  };
+}
+
+function createEffectiveAtomCounting(config = {}) {
+  const groups = (config.groups ?? []).map(createEffectiveAtomGroup);
+  const derivedTotals = {};
+
+  groups.forEach((group) => {
+    if (!group.species) {
+      return;
+    }
+
+    derivedTotals[group.species] =
+      (derivedTotals[group.species] ?? 0) + group.total;
+  });
+
+  return {
+    enabled: config.enabled !== false,
+    title: config.title ?? "有效原子示意",
+    summary: config.summary ?? "",
+    shortConclusion: config.shortConclusion ?? "",
+    formula: config.formula ?? "",
+    stoichiometry: config.stoichiometry ?? "",
+    detailIntro: config.detailIntro ?? "",
+    defaultGroupId: config.defaultGroupId ?? "all",
+    totalAtoms: {
+      ...derivedTotals,
+      ...(config.totalAtoms ?? {})
+    },
+    groups
+  };
+}
+
 function createParticleIndexMapByFractional(particles) {
   const indexMap = new Map();
 
@@ -704,7 +826,10 @@ function createCrystalEntry(entry) {
     entry.supportsCoordinationDisplay ?? coordinationDisplay
   );
   const supportsCountingDisplay = Boolean(
-    entry.supportsCountingDisplay ?? entry.supportsCounting ?? entry.countingInfo
+    entry.supportsCountingDisplay ??
+      entry.supportsCounting ??
+      entry.countingInfo ??
+      entry.effectiveAtomCounting
   );
   const particles = entry.particles ?? entry.atoms ?? [];
   const crystalOrientation = normalizeCrystalOrientation(
@@ -724,6 +849,9 @@ function createCrystalEntry(entry) {
     structureFeatureSummary:
       entry.structureFeatureSummary ?? entry.typeSummary ?? entry.description ?? "",
     countingInfo: entry.countingInfo ? createCountingInfo(entry.countingInfo) : null,
+    effectiveAtomCounting: entry.effectiveAtomCounting
+      ? createEffectiveAtomCounting(entry.effectiveAtomCounting)
+      : null,
     coordinationInfo: entry.coordinationInfo
       ? createCoordinationInfo(entry.coordinationInfo)
       : supportsCoordinationDisplay
@@ -877,10 +1005,91 @@ function createNaClCrystalData() {
     getIndexByFractional(indexMap, point)
   );
   const [zp, xp, yp, xm, ym, zm] = neighborIndices;
+  const clCornerRefs = [...csclCornerSites]
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
+  const clFaceRefs = [
+    [0.5, 0.5, 0],
+    [0.5, 0.5, 1],
+    [0.5, 0, 0.5],
+    [0.5, 1, 0.5],
+    [0, 0.5, 0.5],
+    [1, 0.5, 0.5]
+  ]
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
+  const naBodyRef = getIndexByFractional(indexMap, [0.5, 0.5, 0.5]);
+  const naEdgeRefs = rockSaltCationSites
+    .filter((point) => pointKey(point) !== pointKey([0.5, 0.5, 0.5]))
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
 
   return {
     particles,
     connections: [],
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "高亮部分表示真正计入当前 NaCl 晶胞的原子份额；半透明整球表示该原子与相邻晶胞共享的完整位置。",
+      shortConclusion:
+        "Cl 的 FCC 骨架有效贡献为 4，Na 的棱心与体心有效贡献也为 4，因此化学计量比为 1:1。",
+      formula:
+        "Cl：8 × 1/8 + 6 × 1/2 = 4；Na：12 × 1/4 + 1 × 1 = 4",
+      stoichiometry: "Na : Cl = 1 : 1",
+      detailIntro:
+        "开启示意后，角点、面心、棱心和体心原子会直接按照晶胞边界裁切出其有效部分。",
+      totalAtoms: {
+        Cl: 4,
+        Na: 4
+      },
+      groups: [
+        {
+          id: "nacl-cl-corner",
+          label: "Cl 角点原子",
+          species: "Cl",
+          count: 8,
+          contribution: 1 / 8,
+          positionType: "corner",
+          atomRefs: clCornerRefs,
+          explanation:
+            "8 个角点 Cl- 被 8 个相邻晶胞共享，因此每个角点 Cl- 只对当前晶胞贡献 1/8。"
+        },
+        {
+          id: "nacl-cl-face",
+          label: "Cl 面心原子",
+          species: "Cl",
+          count: 6,
+          contribution: 1 / 2,
+          positionType: "face",
+          atomRefs: clFaceRefs,
+          explanation:
+            "6 个面心 Cl- 各被 2 个相邻晶胞共享，因此每个面心 Cl- 对当前晶胞贡献 1/2。"
+        },
+        {
+          id: "nacl-na-edge",
+          label: "Na 棱心原子",
+          species: "Na",
+          count: 12,
+          contribution: 1 / 4,
+          positionType: "edge",
+          atomRefs: naEdgeRefs,
+          explanation:
+            "12 个棱心 Na+ 各被 4 个相邻晶胞共享，因此每个棱心 Na+ 对当前晶胞贡献 1/4。"
+        },
+        {
+          id: "nacl-na-body",
+          label: "Na 体心原子",
+          species: "Na",
+          count: 1,
+          contribution: 1,
+          positionType: "body",
+          atomRefs: [naBodyRef],
+          explanation:
+            "体心 Na+ 完全位于当前晶胞内部，因此整个原子都计入当前晶胞。"
+        }
+      ]
+    },
     coordinationDisplay: createCoordinationDisplay({
       coordinationType: "octahedral",
       coordinationNumber: 6,
@@ -930,10 +1139,49 @@ function createCsClCrystalData() {
     getIndexByFractional(indexMap, point)
   );
   const [c000, c100, c010, c110, c001, c101, c011, c111] = neighborIndices;
+  const cornerRefs = [...neighborIndices].filter((value) => Number.isInteger(value));
 
   return {
     particles,
     connections: [],
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "高亮部分表示真正属于当前 CsCl 晶胞的原子份额；角点 Cl- 只保留晶胞内部的 1/8，体心 Cs+ 则完整计入。",
+      shortConclusion:
+        "角点 Cl 的有效总贡献为 1，体心 Cs 的有效总贡献也为 1，因此化学计量比为 1:1。",
+      formula: "Cl：8 × 1/8 = 1；Cs：1 × 1 = 1",
+      stoichiometry: "Cs : Cl = 1 : 1",
+      totalAtoms: {
+        Cl: 1,
+        Cs: 1
+      },
+      groups: [
+        {
+          id: "cscl-cl-corner",
+          label: "Cl 角点原子",
+          species: "Cl",
+          count: 8,
+          contribution: 1 / 8,
+          positionType: "corner",
+          atomRefs: cornerRefs,
+          explanation:
+            "8 个角点 Cl- 被 8 个相邻晶胞共享，因此每个角点 Cl- 对当前晶胞贡献 1/8。"
+        },
+        {
+          id: "cscl-cs-body",
+          label: "Cs 体心原子",
+          species: "Cs",
+          count: 1,
+          contribution: 1,
+          positionType: "body",
+          atomRefs: [centerParticleIndex],
+          explanation:
+            "体心 Cs+ 完全位于当前晶胞内部，因此整个原子都计入当前晶胞。"
+        }
+      ]
+    },
     coordinationDisplay: createCoordinationDisplay({
       coordinationType: "cubic",
       coordinationNumber: 8,
@@ -1066,10 +1314,73 @@ function createDiamondCrystalData() {
     .map((key) => particleIndexByKey.get(key))
     .filter((index) => Number.isInteger(index));
   const [n0, n1, n2, n3] = neighborIndices;
+  const diamondCornerRefs = [...csclCornerSites]
+    .map((point) => particleIndexByKey.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
+  const diamondFaceRefs = [
+    [0.5, 0.5, 0],
+    [0.5, 0.5, 1],
+    [0.5, 0, 0.5],
+    [0.5, 1, 0.5],
+    [0, 0.5, 0.5],
+    [1, 0.5, 0.5]
+  ]
+    .map((point) => particleIndexByKey.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
+  const diamondInternalRefs = [...diamondBasisShiftedSites]
+    .map((point) => particleIndexByKey.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
 
   return {
     particles,
     connections,
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "金刚石型晶胞可分成 FCC 骨架的 4 个等效原子，加上 4 个完全位于晶胞内部的基元原子。",
+      shortConclusion:
+        "角点与面心共同形成 4 个 FCC 等效原子，内部基元原子再贡献 4 个，因此一个常规金刚石型晶胞共含 8 个 C 原子。",
+      formula: "角点 C：8 × 1/8 = 1；面心 C：6 × 1/2 = 3；内部 C：4 × 1 = 4",
+      totalAtoms: {
+        C: 8
+      },
+      groups: [
+        {
+          id: "diamond-corner",
+          label: "C 角点原子",
+          species: "C",
+          count: 8,
+          contribution: 1 / 8,
+          positionType: "corner",
+          atomRefs: diamondCornerRefs,
+          explanation:
+            "金刚石型常规晶胞的 8 个角点 C 与普通立方角点一样，被 8 个相邻晶胞共享，因此每个角点只贡献 1/8。"
+        },
+        {
+          id: "diamond-face",
+          label: "C 面心原子",
+          species: "C",
+          count: 6,
+          contribution: 1 / 2,
+          positionType: "face",
+          atomRefs: diamondFaceRefs,
+          explanation:
+            "6 个面心 C 分别位于两个相邻晶胞共有的面上，因此每个面心 C 贡献 1/2。"
+        },
+        {
+          id: "diamond-internal",
+          label: "C 内部基元原子",
+          species: "C",
+          count: 4,
+          contribution: 1,
+          positionType: "internal",
+          atomRefs: diamondInternalRefs,
+          explanation:
+            "4 个内部基元 C 完全位于晶胞内部，它们不是面心或体心共享位点，而是完整地各贡献 1 个。"
+        }
+      ]
+    },
     coordinationDisplay: createCoordinationDisplay({
       coordinationType: "tetrahedral",
       coordinationNumber: 4,
@@ -1122,11 +1433,25 @@ function createFccCrystalData() {
       }
     )
   ];
+  const indexMap = createParticleIndexMapByFractional(particles);
+  const cornerRefs = [...csclCornerSites]
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
+  const faceRefs = [
+    [0.5, 0.5, 0],
+    [0.5, 0.5, 1],
+    [0.5, 0, 0.5],
+    [0.5, 1, 0.5],
+    [0, 0.5, 0.5],
+    [1, 0.5, 0.5]
+  ]
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
   const fccBasisSites = diamondFccSites.map((point) =>
     toPointArray(toCenteredPosition(point))
   );
 
-  return createPeriodicCoordinationData({
+  const fccData = createPeriodicCoordinationData({
     particles,
     centerPoint: toPointArray(toCenteredPosition([0.5, 0.5, 0])),
     basisSites: fccBasisSites,
@@ -1152,6 +1477,46 @@ function createFccCrystalData() {
       polyhedronColor: 0xedb867
     }
   });
+
+  return {
+    ...fccData,
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "FCC 晶胞中，角点原子只保留晶胞内部的 1/8，面心原子保留 1/2，因此高亮部分可以直接看出有效贡献。",
+      shortConclusion:
+        "8 个角点各贡献 1/8，6 个面心各贡献 1/2，所以一个常规 FCC 晶胞的有效原子数为 4。",
+      formula: "角点：8 × 1/8 = 1；面心：6 × 1/2 = 3",
+      totalAtoms: {
+        Cu: 4
+      },
+      groups: [
+        {
+          id: "fcc-corner",
+          label: "角点原子",
+          species: "Cu",
+          count: 8,
+          contribution: 1 / 8,
+          positionType: "corner",
+          atomRefs: cornerRefs,
+          explanation:
+            "FCC 的 8 个角点原子被 8 个相邻晶胞共享，因此每个角点原子只贡献 1/8。"
+        },
+        {
+          id: "fcc-face",
+          label: "面心原子",
+          species: "Cu",
+          count: 6,
+          contribution: 1 / 2,
+          positionType: "face",
+          atomRefs: faceRefs,
+          explanation:
+            "FCC 的 6 个面心原子各位于两个相邻晶胞共享的面上，因此每个面心原子贡献 1/2。"
+        }
+      ]
+    }
+  };
 }
 
 function createBccCrystalData() {
@@ -1169,12 +1534,17 @@ function createBccCrystalData() {
       category: "bcc-center"
     })
   ];
+  const indexMap = createParticleIndexMapByFractional(particles);
+  const cornerRefs = [...bccCornerSites]
+    .map((point) => getIndexByFractional(indexMap, point))
+    .filter((value) => Number.isInteger(value));
+  const bodyRef = getIndexByFractional(indexMap, [0.5, 0.5, 0.5]);
   const bccBasisSites = [
     toPointArray(toCenteredPosition([0, 0, 0])),
     toPointArray(toCenteredPosition([0.5, 0.5, 0.5]))
   ];
 
-  return createPeriodicCoordinationData({
+  const bccData = createPeriodicCoordinationData({
     particles,
     centerPoint: toPointArray(toCenteredPosition([0.5, 0.5, 0.5])),
     basisSites: bccBasisSites,
@@ -1200,6 +1570,46 @@ function createBccCrystalData() {
       polyhedronColor: 0xe8b565
     }
   });
+
+  return {
+    ...bccData,
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "BCC 晶胞中，角点原子只保留晶胞内部的 1/8，体心原子完整计入，因此视觉上可以直接看出 1 + 1 的来源。",
+      shortConclusion:
+        "8 个角点各贡献 1/8，再加上 1 个完整体心原子，因此一个常规 BCC 晶胞的有效原子数为 2。",
+      formula: "角点：8 × 1/8 = 1；体心：1 × 1 = 1",
+      totalAtoms: {
+        Fe: 2
+      },
+      groups: [
+        {
+          id: "bcc-corner",
+          label: "角点原子",
+          species: "Fe",
+          count: 8,
+          contribution: 1 / 8,
+          positionType: "corner",
+          atomRefs: cornerRefs,
+          explanation:
+            "BCC 的 8 个角点原子被 8 个相邻晶胞共享，因此每个角点原子只贡献 1/8。"
+        },
+        {
+          id: "bcc-body",
+          label: "体心原子",
+          species: "Fe",
+          count: 1,
+          contribution: 1,
+          positionType: "body",
+          atomRefs: [bodyRef],
+          explanation:
+            "体心原子完全位于晶胞内部，因此完整贡献 1 个原子。"
+        }
+      ]
+    }
+  };
 }
 
 function createHcpMainCellPoints() {
@@ -1235,8 +1645,18 @@ function createHcpCrystalData() {
       category: "hcp-middle-layer"
     })
   ];
+  const indexMap = createParticleIndexMapByCartesian(particles);
+  const cornerRefs = [...bottomFacePoints.slice(1), ...topFacePoints.slice(1)]
+    .map((point) => indexMap.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
+  const basalFaceCenterRefs = [bottomFacePoints[0], topFacePoints[0]]
+    .map((point) => indexMap.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
+  const internalRefs = [...middleLayerPoints]
+    .map((point) => indexMap.get(pointKey(point)))
+    .filter((value) => Number.isInteger(value));
 
-  return createPeriodicCoordinationData({
+  const hcpData = createPeriodicCoordinationData({
     particles,
     centerPoint: middleLayerPoints[0],
     basisSites: hcpBasisSites,
@@ -1259,6 +1679,58 @@ function createHcpCrystalData() {
       polyhedronColor: 0xe6b86e
     }
   });
+
+  return {
+    ...hcpData,
+    effectiveAtomCounting: {
+      enabled: true,
+      title: "有效原子示意",
+      summary:
+        "六方晶胞中，高亮部分表示真正计入当前六方棱柱晶胞的原子份额；角点原子按六方晶胞共享关系取 1/6，而不是立方晶胞的 1/8。",
+      shortConclusion:
+        "12 个角点各贡献 1/6，2 个底面中心各贡献 1/2，再加上 3 个内部原子各贡献 1，因此常规 HCP 晶胞共含 6 个原子。",
+      formula:
+        "角点：12 × 1/6 = 2；底面中心：2 × 1/2 = 1；内部：3 × 1 = 3",
+      totalAtoms: {
+        Mg: 6
+      },
+      groups: [
+        {
+          id: "hcp-corner",
+          label: "六方晶胞角点原子",
+          species: "Mg",
+          count: 12,
+          contribution: 1 / 6,
+          positionType: "hcpCorner",
+          atomRefs: cornerRefs,
+          explanation:
+            "常规 HCP 六方晶胞的 12 个顶点原子由 6 个相邻晶胞共享，因此每个角点原子只贡献 1/6。"
+        },
+        {
+          id: "hcp-basal-center",
+          label: "上下底面中心原子",
+          species: "Mg",
+          count: 2,
+          contribution: 1 / 2,
+          positionType: "hcpBasalFaceCenter",
+          atomRefs: basalFaceCenterRefs,
+          explanation:
+            "上下底面中心原子各位于两个相邻晶胞共享的底面上，因此每个底面中心原子贡献 1/2。"
+        },
+        {
+          id: "hcp-internal",
+          label: "中层内部原子",
+          species: "Mg",
+          count: 3,
+          contribution: 1,
+          positionType: "hcpInternal",
+          atomRefs: internalRefs,
+          explanation:
+            "中层 B 位的 3 个原子完全位于当前六方晶胞内部，因此各自完整贡献 1。"
+        }
+      ]
+    }
+  };
 }
 
 const testCubeParticles = [
@@ -1280,7 +1752,7 @@ const hcpCrystalData = createHcpCrystalData();
 
 export const projectMeta = {
   title: "晶胞结构可视化",
-  stage: "多晶胞结构、配位与计数说明展示",
+  stage: "多晶胞结构、配位与有效原子示意展示",
   audience: "高中化学学习与比赛展示",
   defaultCrystalId: "nacl",
   axisConvention,
@@ -1325,6 +1797,7 @@ export const crystalCatalog = [
     particles: naclCrystalData.particles,
     connections: naclCrystalData.connections,
     coordinationDisplay: naclCrystalData.coordinationDisplay,
+    effectiveAtomCounting: naclCrystalData.effectiveAtomCounting,
     coordinationLabel: "NaCl 型 6:6 配位",
     coordinationDescription:
       "突出一个代表性 Na+ 与 6 个最近邻 Cl- 的八面体配位环境。",
@@ -1414,6 +1887,7 @@ export const crystalCatalog = [
     particles: csclCrystalData.particles,
     connections: csclCrystalData.connections,
     coordinationDisplay: csclCrystalData.coordinationDisplay,
+    effectiveAtomCounting: csclCrystalData.effectiveAtomCounting,
     coordinationLabel: "CsCl 型 8:8 配位",
     coordinationDescription:
       "突出体心 Cs+ 与 8 个角点 Cl- 的立方配位环境。",
@@ -1491,6 +1965,7 @@ export const crystalCatalog = [
     particles: diamondCrystalData.particles,
     connections: diamondCrystalData.connections,
     coordinationDisplay: diamondCrystalData.coordinationDisplay,
+    effectiveAtomCounting: diamondCrystalData.effectiveAtomCounting,
     coordinationLabel: "金刚石型四配位",
     coordinationDescription:
       "突出一个代表性碳原子与 4 个最近邻碳原子的四面体环境。",
@@ -1576,6 +2051,7 @@ export const crystalCatalog = [
     particles: fccCrystalData.particles,
     connections: fccCrystalData.connections,
     coordinationDisplay: fccCrystalData.coordinationDisplay,
+    effectiveAtomCounting: fccCrystalData.effectiveAtomCounting,
     coordinationLabel: "FCC 代表性 12 配位",
     coordinationDescription:
       "突出主晶胞中一个面心原子的 12 个最近邻；完整配位由周期性晶格最近邻壳层给出，并不意味着这 12 个最近邻全部位于当前单个晶胞内部。",
@@ -1661,6 +2137,7 @@ export const crystalCatalog = [
     particles: bccCrystalData.particles,
     connections: bccCrystalData.connections,
     coordinationDisplay: bccCrystalData.coordinationDisplay,
+    effectiveAtomCounting: bccCrystalData.effectiveAtomCounting,
     coordinationLabel: "BCC 代表性 8 配位",
     coordinationDescription:
       "突出主晶胞中体心原子的 8 个最近邻。这里的 8 配位来自周期性晶格最近邻壳层，BCC 的配位数不是 12。",
@@ -1756,6 +2233,7 @@ export const crystalCatalog = [
     particles: hcpCrystalData.particles,
     connections: hcpCrystalData.connections,
     coordinationDisplay: hcpCrystalData.coordinationDisplay,
+    effectiveAtomCounting: hcpCrystalData.effectiveAtomCounting,
     coordinationLabel: "HCP 代表性 12 配位",
     coordinationDescription:
       "突出常规六方晶胞中一个中层代表性原子的 12 个最近邻；完整配位由周期性晶格最近邻壳层给出，并不意味着 12 个最近邻全部位于当前单个晶胞内部。",
