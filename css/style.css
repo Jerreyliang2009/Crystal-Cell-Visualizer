@@ -69,6 +69,8 @@ button {
 }
 
 .viewer-canvas {
+  position: relative;
+  overflow: hidden;
   width: 100vw;
   height: 100vh;
   background:
@@ -97,6 +99,50 @@ button {
   pointer-events: none;
   transform: translateX(-50%);
   backdrop-filter: blur(6px);
+}
+
+.atom-coordinate-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  max-width: min(230px, calc(100vw - 32px));
+  padding: 7px 9px;
+  border: 1px solid rgba(207, 230, 244, 0.3);
+  border-radius: 9px;
+  background: rgba(18, 35, 50, 0.78);
+  color: rgba(247, 252, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(12, 24, 34, 0.22);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  will-change: transform;
+}
+
+.atom-coordinate-element,
+.atom-coordinate-value {
+  display: block;
+}
+
+.atom-coordinate-element {
+  font-weight: 800;
+}
+
+.atom-coordinate-value {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.atom-coordinate-mark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(116, 185, 226, 0.24);
+  color: rgba(230, 246, 255, 0.96);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .floating-ui {
@@ -537,6 +583,77 @@ button {
 .knowledge-rule-note {
   margin: 8px 0 0;
   color: var(--text-muted);
+}
+
+.author-signature {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 12px 0 0;
+}
+
+.author-avatar {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(205, 220, 230, 0.95);
+  border-radius: 50%;
+  background: #ffffff;
+  object-fit: cover;
+  box-shadow: 0 8px 18px rgba(17, 45, 69, 0.12);
+}
+
+.author-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.author-name,
+.author-coding {
+  margin: 0;
+}
+
+.author-name {
+  color: var(--text-main);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.author-coding {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.openai-logo-mark {
+  display: inline-flex;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  box-shadow: 0 5px 12px rgba(23, 79, 115, 0.18);
+}
+
+.openai-logo {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.author-coding-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .section-head {
@@ -1096,6 +1213,20 @@ button {
   .panel-toggle-button {
     flex: 1 1 140px;
     min-width: 0;
+  }
+
+  .author-signature {
+    gap: 10px;
+  }
+
+  .author-avatar {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .author-coding {
+    font-size: 0.88rem;
   }
 
   .knowledge-count-grid {

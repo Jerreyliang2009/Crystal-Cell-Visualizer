@@ -89,6 +89,10 @@ export class AtomContributionInteraction {
   }
 
   handlePointerMove(event) {
+    if (!this.enabled) {
+      return;
+    }
+
     const atom = this.getPointedAtom(event);
 
     this.setCursor(Boolean(atom));
@@ -96,11 +100,19 @@ export class AtomContributionInteraction {
   }
 
   handlePointerLeave() {
+    if (!this.enabled) {
+      return;
+    }
+
     this.setCursor(false);
     this.onHoverAtom?.(null);
   }
 
   handlePointerDown(event) {
+    if (!this.enabled) {
+      return;
+    }
+
     this.pointerDown = {
       x: event.clientX,
       y: event.clientY

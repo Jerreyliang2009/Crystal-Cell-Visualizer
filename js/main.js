@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AtomContributionInteraction } from "./atomContributionInteraction.js";
 import { AtomContributionRenderer } from "./atomContributionRenderer.js";
+import { AtomCoordinateOverlay } from "./atomCoordinateOverlay.js";
 import { AtomCoordinationRenderer } from "./atomCoordinationRenderer.js";
 import { EffectiveAtomRenderer } from "./effectiveAtomRenderer.js";
 import {
@@ -145,6 +146,10 @@ const AXIS_VISUAL_COLORS = Object.freeze({
   y: { color: 0x4b8f78, colorText: "#4b8f78" },
   z: { color: 0x3d6fa7, colorText: "#3d6fa7" }
 });
+const DEFAULT_VIEW_DISTANCE_MULTIPLIER = 0.74;
+const EDGE_VIEW_ID = "side-edge";
+const CUBIC_EDGE_VIEW_VERTICAL_BIAS = 0.42;
+const HCP_EDGE_VIEW_VERTICAL_BIAS = 0.34;
 
 let currentCrystalId = getDefaultCrystalId();
 let currentCrystal = getCrystalById(currentCrystalId);
@@ -164,6 +169,11 @@ const atomContributionRenderer = new AtomContributionRenderer({
 });
 const atomCoordinationRenderer = new AtomCoordinationRenderer({
   attachTarget: crystalOrientationGroup
+});
+const atomCoordinateOverlay = new AtomCoordinateOverlay({
+  attachTarget: crystalOrientationGroup,
+  labelContainer: viewerContainer,
+  camera
 });
 const effectiveAtomRenderer = new EffectiveAtomRenderer({
   attachTarget: crystalOrientationGroup
@@ -185,6 +195,14 @@ const atomCoordinationInteraction = new AtomContributionInteraction({
   onHoverAtom: handleCoordinationHover,
   onSelectAtom: handleCoordinationSelect,
   onClearSelection: clearAtomCoordinationInteraction
+});
+const atomCoordinateInteraction = new AtomContributionInteraction({
+  domElement: renderer.domElement,
+  camera,
+  getInteractiveObjects: getCoordinateInteractiveObjects,
+  onHoverAtom: null,
+  onSelectAtom: handleCoordinateSelect,
+  onClearSelection: clearAtomCoordinateSelection
 });
 
 function createEmptyModelRefs() {
@@ -401,9 +419,10 @@ function getFloatingPanelLayoutRect(panelElement) {
 function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
   if (requestedViewId === "default") {
     const crystalDefaultView = crystal.defaultView ?? {};
-    const inheritedView =
-      standardViewDirections[crystalDefaultView.viewId] ??
-      standardViewDirections.isometric;
+    const inheritedView = getStandardViewDirectionById(
+      crystalDefaultView.viewId,
+      "isometric"
+    );
 
     return {
       id: "default",
@@ -424,8 +443,17 @@ function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
     };
   }
 
-  const explicitView =
-    standardViewDirections[requestedViewId] ?? standardViewDirections.front;
+  const explicitView = getStandardViewDirectionById(requestedViewId, "front");
+
+  if (explicitView.id === EDGE_VIEW_ID) {
+    return {
+      ...explicitView,
+      ...getEdgeViewConfig(crystal),
+      id: explicitView.id,
+      label: explicitView.label,
+      referenceViewId: explicitView.id
+    };
+  }
 
   return {
     id: explicitView.id,
@@ -437,6 +465,38 @@ function getResolvedViewDefinition(crystal, requestedViewId = selectedViewId) {
     description: explicitView.description,
     rationale: "",
     referenceViewId: explicitView.id
+  };
+}
+
+function getStandardViewDirectionById(viewId, fallbackKey = "front") {
+  if (viewId && standardViewDirections[viewId]) {
+    return standardViewDirections[viewId];
+  }
+
+  const matchedView = Object.values(standardViewDirections).find(
+    (view) => view.id === viewId
+  );
+
+  return matchedView ?? standardViewDirections[fallbackKey];
+}
+
+function getEdgeViewConfig(crystal) {
+  const isHexagonal = crystal?.cellFrame?.shape === "hexagonal-prism";
+  const verticalBias = isHexagonal
+    ? HCP_EDGE_VIEW_VERTICAL_BIAS
+    : CUBIC_EDGE_VIEW_VERTICAL_BIAS;
+
+  return {
+    direction: isHexagonal
+      ? { x: 1, y: 0, z: verticalBias }
+      : { x: 1, y: 1, z: verticalBias },
+    up: { x: 0, y: 0, z: 1 },
+    targetOffset: null,
+    description: isHexagonal
+      ? "沿 HCP 六方柱侧棱附近的规范教学方向观察，c 轴保持接近屏幕竖直。"
+      : "沿立方晶胞竖直侧棱附近的规范教学方向观察，使 Z 轴竖直、X/Y 分列左下和右下，并保留轻微层叠感。",
+    rationale:
+      "以晶胞基矢构造稳定观察基：XY 对角方向提供侧棱重合感，少量 Z 偏转提供教学图中的层叠深度。"
   };
 }
 
@@ -505,6 +565,65 @@ function getViewFocusTargetLocalPoint(viewDefinition, crystal = currentCrystal) 
   return null;
 }
 
+function getCellCenterLocalPoint(crystal = currentCrystal) {
+  const bounds = getCellFrameLocalBounds(crystal?.cellFrame ?? {});
+
+  return bounds.min.clone().add(bounds.max).multiplyScalar(0.5);
+}
+
+function getBoxCornerPoints(box) {
+  const points = [];
+
+  [box.min.x, box.max.x].forEach((x) => {
+    [box.min.y, box.max.y].forEach((y) => {
+      [box.min.z, box.max.z].forEach((z) => {
+        points.push(new THREE.Vector3(x, y, z));
+      });
+    });
+  });
+
+  return points;
+}
+
+function fitCameraToCellFromDirection({
+  target,
+  focusTarget,
+  directionWorld,
+  upWorld,
+  halfFov,
+  aspect,
+  padding = 1.12
+}) {
+  const bounds = getFrameBounds(target);
+  const points = getBoxCornerPoints(bounds);
+  const viewRight = new THREE.Vector3()
+    .crossVectors(upWorld, directionWorld)
+    .normalize();
+  const viewUp = new THREE.Vector3()
+    .crossVectors(directionWorld, viewRight)
+    .normalize();
+  let requiredDistance = 0;
+
+  points.forEach((point) => {
+    const offset = point.clone().sub(focusTarget);
+    const depthOffset = offset.dot(directionWorld);
+    const horizontalReach = Math.abs(offset.dot(viewRight));
+    const verticalReach = Math.abs(offset.dot(viewUp));
+
+    requiredDistance = Math.max(
+      requiredDistance,
+      depthOffset + horizontalReach / (Math.tan(halfFov) * aspect),
+      depthOffset + verticalReach / Math.tan(halfFov)
+    );
+  });
+
+  return Math.max(1, requiredDistance * padding);
+}
+
+function getViewDistanceMultiplier(viewDefinition) {
+  return viewDefinition ? DEFAULT_VIEW_DISTANCE_MULTIPLIER : 1;
+}
+
 function createCameraPoseForView(target, viewDefinition) {
   const bounds = getFrameBounds(target);
   const sphere = bounds.getBoundingSphere(new THREE.Sphere());
@@ -531,20 +650,38 @@ function createCameraPoseForView(target, viewDefinition) {
     .clone()
     .applyQuaternion(scientificToWorldQuaternion)
     .normalize();
-  const distance =
-    (radius / Math.tan(halfFov)) * (viewDefinition.distanceScale ?? 2.12);
-  const focusTargetLocal = getViewFocusTargetLocalPoint(viewDefinition);
+  const projectionZoom = viewDefinition.projectionZoom ?? 1;
+  const focusTargetLocal =
+    viewDefinition.fitTarget === "cell-center"
+      ? getCellCenterLocalPoint(currentCrystal)
+      : getViewFocusTargetLocalPoint(viewDefinition);
 
   target.updateMatrixWorld(true);
 
   const focusTarget = focusTargetLocal
     ? target.localToWorld(focusTargetLocal.clone())
     : sphere.center.clone();
+  const baseDistance =
+    viewDefinition.fitMode === "directional-bounds"
+      ? fitCameraToCellFromDirection({
+          target,
+          focusTarget,
+          directionWorld,
+          upWorld,
+          halfFov,
+          aspect: camera.aspect,
+          padding: viewDefinition.fitPadding ?? 1.12
+        })
+      : (radius / Math.tan(halfFov)) *
+        (viewDefinition.distanceScale ?? 2.12);
+  const distance =
+    baseDistance * projectionZoom * getViewDistanceMultiplier(viewDefinition);
 
   return {
     position: focusTarget.clone().addScaledVector(directionWorld, distance),
     target: focusTarget,
     up: upWorld,
+    zoom: projectionZoom,
     near: Math.max(0.1, distance / 28),
     far: Math.max(50, distance * 8),
     sphere
@@ -560,6 +697,7 @@ function applyCameraPose(pose) {
   camera.position.copy(pose.position);
   camera.up.copy(pose.up);
   controls.target.copy(pose.target);
+  camera.zoom = pose.zoom ?? 1;
   camera.near = pose.near;
   camera.far = pose.far;
   camera.updateProjectionMatrix();
@@ -573,11 +711,13 @@ function startCameraTransition(pose, duration = 480) {
     fromPosition: camera.position.clone(),
     fromTarget: controls.target.clone(),
     fromUp: camera.up.clone(),
+    fromZoom: camera.zoom,
     fromNear: camera.near,
     fromFar: camera.far,
     toPosition: pose.position.clone(),
     toTarget: pose.target.clone(),
     toUp: pose.up.clone(),
+    toZoom: pose.zoom ?? 1,
     toNear: pose.near,
     toFar: pose.far
   };
@@ -606,6 +746,11 @@ function updateCameraTransition(now) {
     .copy(cameraTransition.fromUp)
     .lerp(cameraTransition.toUp, easedProgress)
     .normalize();
+  camera.zoom = THREE.MathUtils.lerp(
+    cameraTransition.fromZoom,
+    cameraTransition.toZoom,
+    easedProgress
+  );
   camera.near = THREE.MathUtils.lerp(
     cameraTransition.fromNear,
     cameraTransition.toNear,
@@ -943,16 +1088,76 @@ function buildCrystalAxisGroup(crystal) {
   return axisGroup;
 }
 
+function coordinateArrayToObject(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      x: value[0] ?? 0,
+      y: value[1] ?? 0,
+      z: value[2] ?? 0
+    };
+  }
+
+  return {
+    x: value.x ?? 0,
+    y: value.y ?? 0,
+    z: value.z ?? 0
+  };
+}
+
+function isOutsideUnitCell(fractionalCoord) {
+  if (!fractionalCoord) {
+    return false;
+  }
+
+  return [fractionalCoord.x, fractionalCoord.y, fractionalCoord.z].some(
+    (value) => value < -1e-6 || value > 1 + 1e-6
+  );
+}
+
+function inferParticleElement(particle, atomSpecies) {
+  if (atomSpecies) {
+    return atomSpecies;
+  }
+
+  const rawLabel = `${particle.metadata?.element ?? ""} ${
+    particle.metadata?.species ?? ""
+  } ${particle.label ?? ""} ${particle.category ?? ""}`;
+  const knownSymbol = rawLabel.match(/\b(Na|Cl|Cs|C|Cu|Fe|Mg)\b/u);
+
+  if (knownSymbol) {
+    return knownSymbol[1];
+  }
+
+  const leadingSymbol = rawLabel.trim().match(/^([A-Z][a-z]?)/u);
+
+  return leadingSymbol?.[1] ?? "";
+}
+
 function createParticleMesh(particle, particleIndex, atomContributionMetadata = null) {
   if (particle.visible === false) {
     return null;
   }
 
+  const metadata = particle.metadata ?? {};
   const atomSpecies =
     atomContributionMetadata?.species ??
-    particle.metadata?.species ??
-    particle.metadata?.element ??
+    metadata.species ??
+    metadata.element ??
     "";
+  const fractionalCoord = coordinateArrayToObject(metadata.fractionalPosition);
+  const cartesianCoord = coordinateArrayToObject(
+    metadata.cartesianPosition ?? particle.position
+  );
+  const isCoordinationHelper = Boolean(metadata.coordinationHelper);
+  const isHelper = Boolean(
+    metadata.isAuxiliary || metadata.isDiamondHelper || isCoordinationHelper
+  );
+  const isGhost = Boolean(metadata.isGhost || metadata.isGhostAtom);
+  const element = inferParticleElement(particle, atomSpecies);
   const geometry = new THREE.SphereGeometry(particle.radius, 30, 30);
   const opacity = particle.opacity ?? 1;
   const material = new THREE.MeshPhongMaterial({
@@ -978,6 +1183,7 @@ function createParticleMesh(particle, particleIndex, atomContributionMetadata = 
       atomContributionMetadata?.atomId ??
       `${particle.category ?? "particle"}-${particleIndex}`,
     species: atomSpecies,
+    element,
     atomType: atomSpecies || particle.label || particle.category || "atom",
     positionType: atomContributionMetadata?.positionType ?? "",
     groupId: atomContributionMetadata?.groupId ?? "",
@@ -988,6 +1194,30 @@ function createParticleMesh(particle, particleIndex, atomContributionMetadata = 
     formulaText: atomContributionMetadata?.formulaText ?? "",
     selectable: Boolean(atomContributionMetadata?.selectable),
     isSelectableAtom: true,
+    coordinateSelectable: metadata.coordinateSelectable !== false && !isGhost,
+    fractionalCoord,
+    cartesianCoord,
+    cellCoord: fractionalCoord ?? cartesianCoord,
+    displayCoord:
+      metadata.displayCoord ??
+      metadata.displayCoordinate ??
+      metadata.coordinateLabel ??
+      "",
+    displayCartesianCoord:
+      metadata.displayCartesianCoord ?? metadata.displayCartesianCoordinate ?? "",
+    displayFractionalCoord:
+      metadata.displayFractionalCoord ?? metadata.displayFractionalCoordinate ?? "",
+    symbolicCoord: metadata.symbolicCoord ?? metadata.symbolicCoordinate ?? "",
+    atomRole:
+      metadata.atomRole ??
+      atomContributionMetadata?.positionType ??
+      particle.category ??
+      "",
+    isHelper,
+    isGhost,
+    isGhostAtom: isGhost,
+    isCoordinationHelper,
+    isExtendedAtom: isOutsideUnitCell(fractionalCoord),
     label: particle.label,
     category: particle.category,
     baseColor: particle.color,
@@ -1585,6 +1815,32 @@ function handleCoordinationSelect(mesh) {
   );
 }
 
+function getCoordinateInteractiveObjects() {
+  if (!showCellAxesEnabled || showCountEnabled) {
+    return [];
+  }
+
+  return currentModelRefs.particleMeshesByIndex.filter(
+    (mesh) =>
+      mesh?.userData?.type === "atom" &&
+      mesh.userData.coordinateSelectable !== false &&
+      mesh.visible !== false
+  );
+}
+
+function clearAtomCoordinateSelection() {
+  atomCoordinateOverlay.clearSelection();
+}
+
+function handleCoordinateSelect(mesh) {
+  if (!showCellAxesEnabled || showCountEnabled) {
+    clearAtomCoordinateSelection();
+    return;
+  }
+
+  atomCoordinateOverlay.selectAtom(mesh);
+}
+
 function getCountingGroupOptions(crystal) {
   if (!hasEffectiveCounting(crystal)) {
     return [{ id: "all", label: "全部显示" }];
@@ -1722,6 +1978,7 @@ function setShowCellAxesState(nextValue, { syncUi = true } = {}) {
   }
 
   applyInternalAxisVisibility(showCellAxesEnabled);
+  applyAtomCoordinateVisibility(currentCrystal, showCellAxesEnabled);
 }
 
 function getEffectiveCountingGroupById(
@@ -1979,6 +2236,18 @@ function applyDynamicCoordinationVisibility(crystal, enabled) {
   atomCoordinationRenderer.refreshVisualState();
 }
 
+function applyAtomCoordinateVisibility(crystal, enabled) {
+  const shouldEnableCoordinateInteraction = Boolean(
+    enabled && crystal && !showCountEnabled
+  );
+
+  atomCoordinateInteraction.setEnabled(shouldEnableCoordinateInteraction);
+
+  if (!shouldEnableCoordinateInteraction) {
+    clearAtomCoordinateSelection();
+  }
+}
+
 function applyCrystalDisplayState() {
   applyBaseModelVisualState(currentCrystal, showCoordinationEnabled);
   applyAuxiliaryVisibility(currentCrystal);
@@ -1986,6 +2255,7 @@ function applyCrystalDisplayState() {
   applyEffectiveCountingVisibility(currentCrystal, showCountEnabled);
   applyDynamicCoordinationVisibility(currentCrystal, showCoordinationEnabled);
   applyInternalAxisVisibility(showCellAxesEnabled);
+  applyAtomCoordinateVisibility(currentCrystal, showCellAxesEnabled);
   updateKnowledgePanels(currentCrystal);
   applyCountingPanelVisibility(currentCrystal, showCountEnabled);
 }
@@ -2055,7 +2325,6 @@ const uiController = setupUI({
   },
   onShowCellAxesChange(nextValue) {
     clearAtomContributionInteraction();
-    clearAtomCoordinationInteraction({ immediate: true });
     setShowCellAxesState(nextValue, { syncUi: true });
     setPanelStatus(
       nextValue
@@ -2077,6 +2346,7 @@ const uiController = setupUI({
   onShowAuxiliaryChange(nextValue) {
     clearAtomContributionInteraction();
     clearAtomCoordinationInteraction({ immediate: true });
+    clearAtomCoordinateSelection();
     if (!currentCrystal.supportsAuxiliaryAtoms) {
       uiController.setShowAuxiliary(showAuxiliaryAtomsEnabled);
       setPanelStatus("当前晶胞没有可切换的辅助原子。");
@@ -2184,6 +2454,7 @@ function loadCrystal(crystalId) {
   stopCameraTransition();
   atomContributionRenderer.clear({ immediate: true });
   atomCoordinationRenderer.clear({ immediate: true });
+  atomCoordinateOverlay.clear({ removeRoot: true });
   clearCoordinationSelectionInfo();
   effectiveAtomRenderer.clear();
   clearGroup(crystalOrientationGroup);
@@ -2203,12 +2474,17 @@ function loadCrystal(crystalId) {
     currentModelRefs.particleMeshesByIndex,
     currentModelRefs.connectionMeshesByIndex
   );
+  atomCoordinateOverlay.rebuild(
+    currentCrystal,
+    currentModelRefs.particleMeshesByIndex
+  );
   atomContributionInteraction.setEnabled(
     showCountEnabled && hasEffectiveCounting(currentCrystal)
   );
   atomCoordinationInteraction.setEnabled(
     showCoordinationEnabled && hasCoordinationDisplay(currentCrystal)
   );
+  atomCoordinateInteraction.setEnabled(showCellAxesEnabled);
   rebuildEffectiveCountingOverlay(currentCrystal);
   setAutoRotateState(autoRotateEnabled, { syncUi: false });
   applySelectedView({
@@ -2244,6 +2520,7 @@ function animate() {
   controls.update();
   atomContributionRenderer.update(performance.now());
   atomCoordinationRenderer.update(performance.now());
+  atomCoordinateOverlay.update();
   effectiveAtomRenderer.update(performance.now());
   renderer.render(scene, camera);
 }

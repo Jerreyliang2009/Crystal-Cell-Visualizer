@@ -202,12 +202,11 @@ export const standardViewDirections = {
   sideEdge: {
     id: "side-edge",
     label: "侧棱观测",
-    direction: { x: 1, y: 1, z: 0 },
+    direction: { x: 1, y: 1, z: 0.42 },
     up: { x: 0, y: 0, z: 1 },
-    targetOffset: { x: 1, y: 1, z: 0 },
-    distanceScale: 2.34,
+    distanceScale: 2.12,
     description:
-      "沿 +X 与 +Y 的水平角平分方向观察，并以位于 +X/+Y 象限的一条竖直侧棱中点为视线中心；Z 保持向上。"
+      "沿 XY 平面 [1,1,0] 的 45° 对角方向观察，使 X/Y 对称展开、Z 保持向上。"
   },
   top: {
     id: "top",
