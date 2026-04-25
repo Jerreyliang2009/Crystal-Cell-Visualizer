@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AtomContributionInteraction } from "./atomContributionInteraction.js";
 import { AtomContributionRenderer } from "./atomContributionRenderer.js";
+import { AtomCoordinationRenderer } from "./atomCoordinationRenderer.js";
 import { EffectiveAtomRenderer } from "./effectiveAtomRenderer.js";
 import {
   axisConvention,
@@ -37,6 +38,9 @@ const supportElement = document.getElementById("feature-support");
 const audienceElement = document.getElementById("target-audience");
 const atomContributionHintElement = document.getElementById(
   "atom-contribution-hint"
+);
+const coordinationSelectionInfoElement = document.getElementById(
+  "coordination-selection-info"
 );
 
 if (!viewerContainer) {
@@ -158,6 +162,9 @@ let cameraTransition = null;
 const atomContributionRenderer = new AtomContributionRenderer({
   attachTarget: crystalOrientationGroup
 });
+const atomCoordinationRenderer = new AtomCoordinationRenderer({
+  attachTarget: crystalOrientationGroup
+});
 const effectiveAtomRenderer = new EffectiveAtomRenderer({
   attachTarget: crystalOrientationGroup
 });
@@ -170,6 +177,14 @@ const atomContributionInteraction = new AtomContributionInteraction({
   onHoverAtom: handleAtomContributionHover,
   onSelectAtom: handleAtomContributionSelect,
   onClearSelection: clearAtomContributionInteraction
+});
+const atomCoordinationInteraction = new AtomContributionInteraction({
+  domElement: renderer.domElement,
+  camera,
+  getInteractiveObjects: getCoordinationInteractiveObjects,
+  onHoverAtom: handleCoordinationHover,
+  onSelectAtom: handleCoordinationSelect,
+  onClearSelection: clearAtomCoordinationInteraction
 });
 
 function createEmptyModelRefs() {
@@ -933,6 +948,11 @@ function createParticleMesh(particle, particleIndex, atomContributionMetadata = 
     return null;
   }
 
+  const atomSpecies =
+    atomContributionMetadata?.species ??
+    particle.metadata?.species ??
+    particle.metadata?.element ??
+    "";
   const geometry = new THREE.SphereGeometry(particle.radius, 30, 30);
   const opacity = particle.opacity ?? 1;
   const material = new THREE.MeshPhongMaterial({
@@ -957,7 +977,8 @@ function createParticleMesh(particle, particleIndex, atomContributionMetadata = 
     atomId:
       atomContributionMetadata?.atomId ??
       `${particle.category ?? "particle"}-${particleIndex}`,
-    species: atomContributionMetadata?.species ?? particle.metadata?.species ?? "",
+    species: atomSpecies,
+    atomType: atomSpecies || particle.label || particle.category || "atom",
     positionType: atomContributionMetadata?.positionType ?? "",
     groupId: atomContributionMetadata?.groupId ?? "",
     contribution: atomContributionMetadata?.contribution ?? null,
@@ -966,6 +987,7 @@ function createParticleMesh(particle, particleIndex, atomContributionMetadata = 
     totalContribution: atomContributionMetadata?.totalContribution ?? null,
     formulaText: atomContributionMetadata?.formulaText ?? "",
     selectable: Boolean(atomContributionMetadata?.selectable),
+    isSelectableAtom: true,
     label: particle.label,
     category: particle.category,
     baseColor: particle.color,
@@ -1465,6 +1487,104 @@ function handleAtomContributionSelect(mesh) {
   setPanelStatus(`${group.label}：${group.formulaText ?? group.equation}`);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function getCoordinationInteractiveObjects() {
+  if (!showCoordinationEnabled || !hasCoordinationDisplay(currentCrystal)) {
+    return [];
+  }
+
+  return currentModelRefs.particleMeshesByIndex.filter(
+    (mesh) =>
+      mesh?.userData?.type === "atom" &&
+      mesh.userData.isSelectableAtom !== false &&
+      mesh.visible !== false
+  );
+}
+
+function renderCoordinationSelectionInfo(info) {
+  if (!coordinationSelectionInfoElement) {
+    return;
+  }
+
+  if (!info) {
+    coordinationSelectionInfoElement.hidden = true;
+    coordinationSelectionInfoElement.innerHTML = "";
+    return;
+  }
+
+  const coordinationNumberText =
+    info.coordinationNumber === info.expectedCoordinationNumber
+      ? `${info.coordinationNumber}`
+      : `${info.coordinationNumber} / ${info.expectedCoordinationNumber}`;
+
+  coordinationSelectionInfoElement.innerHTML = `
+    <p class="coordination-info-kicker">当前选中配位环境</p>
+    <dl class="coordination-info-list">
+      <div>
+        <dt>晶胞</dt>
+        <dd>${escapeHtml(info.crystalName)}</dd>
+      </div>
+      <div>
+        <dt>中心原子</dt>
+        <dd>${escapeHtml(info.atomType)}</dd>
+      </div>
+      <div>
+        <dt>配位数</dt>
+        <dd>${escapeHtml(coordinationNumberText)}</dd>
+      </div>
+      <div>
+        <dt>配位原子</dt>
+        <dd>${escapeHtml(info.neighborSummary || "最近邻原子")}</dd>
+      </div>
+    </dl>
+    <p class="coordination-info-note">${escapeHtml(info.description)}</p>
+  `;
+  coordinationSelectionInfoElement.hidden = false;
+}
+
+function clearCoordinationSelectionInfo() {
+  renderCoordinationSelectionInfo(null);
+}
+
+function clearAtomCoordinationInteraction({ immediate = false } = {}) {
+  atomCoordinationRenderer.clearSelection({ immediate });
+  atomCoordinationRenderer.clearHover();
+  clearCoordinationSelectionInfo();
+}
+
+function handleCoordinationHover(mesh) {
+  atomCoordinationRenderer.setHoverAtom(mesh);
+}
+
+function handleCoordinationSelect(mesh) {
+  if (!showCoordinationEnabled || !hasCoordinationDisplay(currentCrystal)) {
+    clearAtomCoordinationInteraction({ immediate: true });
+    return;
+  }
+
+  const info = atomCoordinationRenderer.selectAtom(mesh);
+
+  if (!info) {
+    clearAtomCoordinationInteraction({ immediate: true });
+    return;
+  }
+
+  renderCoordinationSelectionInfo(info);
+  setPanelStatus(
+    `${info.atomType} 配位数 ${info.coordinationNumber}：${
+      info.neighborSummary || "最近邻原子"
+    }`
+  );
+}
+
 function getCountingGroupOptions(crystal) {
   if (!hasEffectiveCounting(crystal)) {
     return [{ id: "all", label: "全部显示" }];
@@ -1764,41 +1884,12 @@ function applyCoordinationParticleEmphasis(mesh, emphasisType) {
 }
 
 function applyBaseModelVisualState(crystal, coordinationEnabled) {
-  const shouldDim = coordinationEnabled && hasCoordinationDisplay(crystal);
-  const centerIndices = new Set(
-    currentModelRefs.coordinationGroup?.userData?.centerParticleIndices ?? []
-  );
-  const neighborIndices = new Set(
-    currentModelRefs.coordinationGroup?.userData?.neighborParticleIndices ?? []
-  );
-
   currentModelRefs.particleMeshesByIndex.forEach((mesh, particleIndex) => {
     if (!mesh) {
       return;
     }
 
     resetParticleVisual(mesh);
-
-    if (!shouldDim) {
-      return;
-    }
-
-    if (centerIndices.has(particleIndex)) {
-      applyCoordinationParticleEmphasis(mesh, "center");
-      return;
-    }
-
-    if (neighborIndices.has(particleIndex)) {
-      applyCoordinationParticleEmphasis(mesh, "neighbor");
-      return;
-    }
-
-    const material = mesh.material;
-    const dimOpacity = mesh.userData.isAuxiliaryParticle
-      ? 0.08
-      : mesh.userData.defaultOpacity * 0.36;
-
-    applyMaterialOpacity(material, dimOpacity);
   });
 
   currentModelRefs.connectionMeshesByIndex.forEach((mesh) => {
@@ -1807,17 +1898,6 @@ function applyBaseModelVisualState(crystal, coordinationEnabled) {
     }
 
     resetConnectionVisual(mesh);
-
-    if (!shouldDim) {
-      return;
-    }
-
-    const material = mesh.material;
-    const dimOpacity = mesh.userData.isAuxiliaryConnection
-      ? 0.05
-      : mesh.userData.defaultOpacity * 0.2;
-
-    applyMaterialOpacity(material, dimOpacity);
   });
 }
 
@@ -1852,10 +1932,7 @@ function applyCoordinationVisibility(crystal, enabled) {
     return;
   }
 
-  currentModelRefs.coordinationGroup.visible =
-    enabled &&
-    hasCoordinationDisplay(crystal) &&
-    currentModelRefs.coordinationGroup.children.length > 0;
+  currentModelRefs.coordinationGroup.visible = false;
 }
 
 function applyInternalAxisVisibility(enabled) {
@@ -1888,11 +1965,26 @@ function applyEffectiveCountingVisibility(crystal, enabled) {
   effectiveAtomRenderer.clear();
 }
 
+function applyDynamicCoordinationVisibility(crystal, enabled) {
+  const shouldEnableCoordinationInteraction =
+    Boolean(enabled) && hasCoordinationDisplay(crystal);
+
+  atomCoordinationInteraction.setEnabled(shouldEnableCoordinationInteraction);
+
+  if (!shouldEnableCoordinationInteraction) {
+    clearAtomCoordinationInteraction({ immediate: true });
+    return;
+  }
+
+  atomCoordinationRenderer.refreshVisualState();
+}
+
 function applyCrystalDisplayState() {
   applyBaseModelVisualState(currentCrystal, showCoordinationEnabled);
   applyAuxiliaryVisibility(currentCrystal);
   applyCoordinationVisibility(currentCrystal, showCoordinationEnabled);
   applyEffectiveCountingVisibility(currentCrystal, showCountEnabled);
+  applyDynamicCoordinationVisibility(currentCrystal, showCoordinationEnabled);
   applyInternalAxisVisibility(showCellAxesEnabled);
   updateKnowledgePanels(currentCrystal);
   applyCountingPanelVisibility(currentCrystal, showCountEnabled);
@@ -1904,10 +1996,7 @@ function getLoadStatusMessage(crystal) {
   }
 
   if (showCoordinationEnabled && hasCoordinationDisplay(crystal)) {
-    return (
-      crystal.coordinationDescription ??
-      `已显示 ${crystal.coordinationLabel ?? "代表性配位环境"}。`
-    );
+    return `已加载 ${crystal.name}，配位点击模式已开启：点按任意可见原子查看最近邻配位。`;
   }
 
   return `已加载 ${crystal.name}。`;
@@ -1933,6 +2022,7 @@ const uiController = setupUI({
   },
   onViewChange(nextViewId) {
     clearAtomContributionInteraction();
+    clearAtomCoordinationInteraction({ immediate: true });
     const resolvedView = applySelectedView({
       viewId: nextViewId,
       animate: true
@@ -1965,6 +2055,7 @@ const uiController = setupUI({
   },
   onShowCellAxesChange(nextValue) {
     clearAtomContributionInteraction();
+    clearAtomCoordinationInteraction({ immediate: true });
     setShowCellAxesState(nextValue, { syncUi: true });
     setPanelStatus(
       nextValue
@@ -1985,6 +2076,7 @@ const uiController = setupUI({
   },
   onShowAuxiliaryChange(nextValue) {
     clearAtomContributionInteraction();
+    clearAtomCoordinationInteraction({ immediate: true });
     if (!currentCrystal.supportsAuxiliaryAtoms) {
       uiController.setShowAuxiliary(showAuxiliaryAtomsEnabled);
       setPanelStatus("当前晶胞没有可切换的辅助原子。");
@@ -2001,6 +2093,11 @@ const uiController = setupUI({
   },
   onShowCoordinationChange(nextValue) {
     clearAtomContributionInteraction();
+    if (nextValue && showCountEnabled) {
+      showCountEnabled = false;
+      uiController.setShowCount(false);
+    }
+
     if (!hasCoordinationDisplay(currentCrystal)) {
       showCoordinationEnabled = false;
       uiController.setShowCoordination(false);
@@ -2012,13 +2109,18 @@ const uiController = setupUI({
     applyCrystalDisplayState();
     setPanelStatus(
       nextValue
-        ? currentCrystal.coordinationDescription ??
-            `已显示 ${currentCrystal.coordinationLabel ?? "代表性配位环境"}。`
-        : `已隐藏 ${currentCrystal.coordinationLabel ?? "代表性配位环境"}。`
+        ? "配位点击模式已开启：点按任意可见原子查看最近邻配位。"
+        : "配位点击模式已关闭。"
     );
   },
   onShowCountChange(nextValue) {
     clearAtomContributionInteraction();
+    if (nextValue && showCoordinationEnabled) {
+      showCoordinationEnabled = false;
+      uiController.setShowCoordination(false);
+      clearAtomCoordinationInteraction({ immediate: true });
+    }
+
     if (!hasEffectiveCounting(currentCrystal)) {
       showCountEnabled = false;
       uiController.setShowCount(false);
@@ -2081,6 +2183,8 @@ function loadCrystal(crystalId) {
 
   stopCameraTransition();
   atomContributionRenderer.clear({ immediate: true });
+  atomCoordinationRenderer.clear({ immediate: true });
+  clearCoordinationSelectionInfo();
   effectiveAtomRenderer.clear();
   clearGroup(crystalOrientationGroup);
   currentModelRefs = createEmptyModelRefs();
@@ -2094,8 +2198,16 @@ function loadCrystal(crystalId) {
     currentCrystal,
     currentModelRefs.particleMeshesByIndex
   );
+  atomCoordinationRenderer.rebuild(
+    currentCrystal,
+    currentModelRefs.particleMeshesByIndex,
+    currentModelRefs.connectionMeshesByIndex
+  );
   atomContributionInteraction.setEnabled(
     showCountEnabled && hasEffectiveCounting(currentCrystal)
+  );
+  atomCoordinationInteraction.setEnabled(
+    showCoordinationEnabled && hasCoordinationDisplay(currentCrystal)
   );
   rebuildEffectiveCountingOverlay(currentCrystal);
   setAutoRotateState(autoRotateEnabled, { syncUi: false });
@@ -2131,6 +2243,7 @@ function animate() {
   updateCameraTransition(performance.now());
   controls.update();
   atomContributionRenderer.update(performance.now());
+  atomCoordinationRenderer.update(performance.now());
   effectiveAtomRenderer.update(performance.now());
   renderer.render(scene, camera);
 }

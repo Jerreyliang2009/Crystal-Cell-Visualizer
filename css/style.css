@@ -620,6 +620,57 @@ button {
   opacity: 0.82;
 }
 
+.coordination-selection-info {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(203, 217, 227, 0.92);
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.coordination-info-kicker,
+.coordination-info-note {
+  margin: 0;
+}
+
+.coordination-info-kicker {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.coordination-info-list {
+  margin: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.coordination-info-list div {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.34fr) 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.coordination-info-list dt {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.coordination-info-list dd {
+  margin: 0;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.coordination-info-note {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .info-list {
   margin: 12px 0 0;
 }

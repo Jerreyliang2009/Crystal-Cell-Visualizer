@@ -485,6 +485,70 @@ function createCoordinationDisplay({
   };
 }
 
+function normalizeCoordinationTranslationVectors(vectors) {
+  return (vectors ?? []).map((vector) => {
+    if (Array.isArray(vector)) {
+      return { x: vector[0] ?? 0, y: vector[1] ?? 0, z: vector[2] ?? 0 };
+    }
+
+    return {
+      x: vector?.x ?? 0,
+      y: vector?.y ?? 0,
+      z: vector?.z ?? 0
+    };
+  });
+}
+
+function createBoxCoordinationTranslationVectors(cellFrame = defaultBoxFrame) {
+  const size = cellFrame.size ?? defaultBoxFrame.size;
+
+  return [
+    { x: size.x ?? 2, y: 0, z: 0 },
+    { x: 0, y: size.y ?? 2, z: 0 },
+    { x: 0, y: 0, z: size.z ?? 2 }
+  ];
+}
+
+function createCoordinationRule(ruleConfig, entry = {}, coordinationDisplay = null) {
+  if (!ruleConfig && !coordinationDisplay) {
+    return null;
+  }
+
+  const rule = ruleConfig ?? {};
+  const cellFrame = {
+    ...defaultBoxFrame,
+    ...(entry.cellFrame ?? {})
+  };
+  const rawTranslationVectors =
+    rule.translationVectors ??
+    (cellFrame.shape === "box"
+      ? createBoxCoordinationTranslationVectors(cellFrame)
+      : []);
+
+  return {
+    type: rule.type ?? "nearest-neighbor-shell",
+    coordinationNumber:
+      rule.coordinationNumber ??
+      entry.coordinationNumber ??
+      coordinationDisplay?.coordinationNumber ??
+      null,
+    translationVectors: normalizeCoordinationTranslationVectors(
+      rawTranslationVectors
+    ),
+    searchRange: rule.searchRange ?? rule.maxSearchRange ?? 1,
+    tolerance: rule.tolerance ?? rule.distanceTolerance ?? hcpCoordinationTolerance,
+    relativeTolerance: rule.relativeTolerance ?? 0.025,
+    nearestNeighborDistance:
+      rule.nearestNeighborDistance ?? entry.nearestNeighborDistance ?? null,
+    explanation:
+      rule.explanation ??
+      entry.coordinationInfo?.summary ??
+      entry.coordinationDescription ??
+      coordinationDisplay?.coordinationDescription ??
+      "该原子周围最近邻原子构成其配位环境。"
+  };
+}
+
 function createCoordinationInfo(info = {}) {
   return {
     title: info.title ?? "",
@@ -802,6 +866,14 @@ function createPeriodicCoordinationData({
     particles: combinedParticles,
     connections: [],
     nearestNeighborDistance: neighborShell.nearestDistance,
+    coordinationRule: createCoordinationRule({
+      coordinationNumber,
+      translationVectors,
+      searchRange: maxSearchRange,
+      tolerance,
+      nearestNeighborDistance: neighborShell.nearestDistance,
+      explanation: coordinationDescription
+    }),
     coordinationDisplay: createCoordinationDisplay({
       coordinationType,
       coordinationNumber,
@@ -899,6 +971,11 @@ function createCrystalEntry(entry) {
       entry.coordinationNeighbors ??
       coordinationDisplay?.coordinationNeighbors ??
       [],
+    coordinationRule: createCoordinationRule(
+      entry.coordinationRule,
+      entry,
+      coordinationDisplay
+    ),
     atomLegend: normalizeAtomLegendArray(entry.atomLegend),
     axisConventionId: entry.axisConventionId ?? axisConvention.id,
     crystalOrientation,
@@ -2051,6 +2128,7 @@ export const crystalCatalog = [
     particles: fccCrystalData.particles,
     connections: fccCrystalData.connections,
     coordinationDisplay: fccCrystalData.coordinationDisplay,
+    coordinationRule: fccCrystalData.coordinationRule,
     effectiveAtomCounting: fccCrystalData.effectiveAtomCounting,
     coordinationLabel: "FCC 代表性 12 配位",
     coordinationDescription:
@@ -2137,6 +2215,7 @@ export const crystalCatalog = [
     particles: bccCrystalData.particles,
     connections: bccCrystalData.connections,
     coordinationDisplay: bccCrystalData.coordinationDisplay,
+    coordinationRule: bccCrystalData.coordinationRule,
     effectiveAtomCounting: bccCrystalData.effectiveAtomCounting,
     coordinationLabel: "BCC 代表性 8 配位",
     coordinationDescription:
@@ -2233,6 +2312,7 @@ export const crystalCatalog = [
     particles: hcpCrystalData.particles,
     connections: hcpCrystalData.connections,
     coordinationDisplay: hcpCrystalData.coordinationDisplay,
+    coordinationRule: hcpCrystalData.coordinationRule,
     effectiveAtomCounting: hcpCrystalData.effectiveAtomCounting,
     coordinationLabel: "HCP 代表性 12 配位",
     coordinationDescription:

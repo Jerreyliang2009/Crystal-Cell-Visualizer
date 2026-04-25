@@ -7,13 +7,19 @@ import {
 } from "./atomContributionLabels.js";
 
 const FADE_MS = 260;
-const GHOST_OPACITY = 0.18;
-const EFFECTIVE_OPACITY = 0.92;
+const GHOST_OPACITY = 0.12;
+const EFFECTIVE_OPACITY = 0.98;
+const EFFECTIVE_HALO_OPACITY = 0.36;
 const CONNECTOR_OPACITY = 0.45;
 const PULSE_SPEED = 0.006;
+const EFFECTIVE_HALO_SCALE = 1.055;
 
 function brightenColor(colorValue, amount = 0.26) {
   return new THREE.Color(colorValue).lerp(new THREE.Color(0xffffff), amount);
+}
+
+function makeEffectiveColor(colorValue) {
+  return new THREE.Color(colorValue).offsetHSL(0, 0.1, 0.18);
 }
 
 function applyMaterialOpacity(material, opacity) {
@@ -178,7 +184,7 @@ function buildLocalClippingPlanes(cellFrame) {
   return buildBoxPlanes(cellFrame);
 }
 
-function buildWorldClippingPlanes(cellFrame, targetGroup) {
+function buildCellClippingPlanes(cellFrame, targetGroup) {
   const localPlanes = buildLocalClippingPlanes(cellFrame);
 
   targetGroup.updateMatrixWorld(true);
@@ -220,6 +226,7 @@ export class AtomContributionRenderer {
     this.selectionEntries = [];
     this.hoverEntries = [];
     this.animatedEntries = [];
+    this.selectedEffectiveVisualGroup = null;
     this.overlayGeometries = new Set();
     this.lastUpdateAt = 0;
   }
@@ -265,6 +272,7 @@ export class AtomContributionRenderer {
     this.selectedMesh = null;
     this.selectedGroup = null;
     this.hoverMesh = null;
+    this.selectedEffectiveVisualGroup = null;
     this.lastUpdateAt = 0;
   }
 
@@ -437,12 +445,25 @@ export class AtomContributionRenderer {
     entry.dispose?.();
   }
 
+  clearSelectedAtomEffectivePart({ immediate = false } = {}) {
+    const effectiveEntries = this.selectionEntries.filter(
+      (entry) => entry.object?.userData?.atomContributionRole === "selectedEffectiveVisualGroup"
+    );
+
+    this.fadeOutEntries(effectiveEntries, { immediate });
+    this.selectionEntries = this.selectionEntries.filter(
+      (entry) => !effectiveEntries.includes(entry)
+    );
+    this.selectedEffectiveVisualGroup = null;
+  }
+
   clearSelection({ immediate = false } = {}) {
+    this.clearSelectedAtomEffectivePart({ immediate });
     this.fadeOutEntries(this.selectionEntries, { immediate });
     this.selectionEntries = [];
     this.selectedMesh = null;
     this.selectedGroup = null;
-    this.restoreAllAtomVisuals();
+    this.restoreDefaultVisualState();
   }
 
   clearHover({ immediate = false } = {}) {
@@ -466,8 +487,12 @@ export class AtomContributionRenderer {
     mesh.renderOrder = mesh.userData?.baseRenderOrder ?? 2;
   }
 
-  restoreAllAtomVisuals() {
+  restoreDefaultVisualState() {
     this.getSelectableMeshes().forEach((mesh) => this.restoreMeshToBase(mesh));
+  }
+
+  restoreAllAtomVisuals() {
+    this.restoreDefaultVisualState();
   }
 
   applyAtomVisualState() {
@@ -480,23 +505,40 @@ export class AtomContributionRenderer {
     if (selectedGroup) {
       const groupMeshes = new Set(this.getGroupMeshes(selectedGroup));
       const accentColor = selectedGroup.emphasisColor ?? getMeshBaseColor(selectedMesh);
+      const focusColor = brightenColor(accentColor, 0.36);
 
       this.getSelectableMeshes().forEach((mesh) => {
         if (groupMeshes.has(mesh)) {
           const material = mesh.material;
           const baseColor = new THREE.Color(getMeshBaseColor(mesh));
-          const highlightColor = brightenColor(accentColor, 0.18);
+          const highlightColor = brightenColor(accentColor, 0.28);
           const isSelected = mesh === selectedMesh;
 
-          material.color.copy(baseColor.lerp(highlightColor, isSelected ? 0.46 : 0.28));
-          material.emissive?.copy?.(highlightColor.clone().multiplyScalar(isSelected ? 0.34 : 0.2));
-          applyMaterialOpacity(material, 1);
-          mesh.scale.setScalar(isSelected ? 1.16 : 1.08);
-          mesh.renderOrder = isSelected ? 18 : 16;
+          if (isSelected) {
+            material.color.copy(baseColor.lerp(focusColor, 0.18));
+            material.emissive?.copy?.(focusColor.clone().multiplyScalar(0.1));
+            applyMaterialOpacity(material, 0.18);
+            mesh.scale.setScalar(1);
+            mesh.renderOrder = 15;
+            return;
+          }
+
+          material.color.copy(baseColor.lerp(highlightColor, 0.34));
+          material.emissive?.copy?.(highlightColor.clone().multiplyScalar(0.16));
+          applyMaterialOpacity(material, 0.78);
+          mesh.scale.setScalar(1.04);
+          mesh.renderOrder = 14;
           return;
         }
 
-        applyMaterialOpacity(mesh.material, Math.max(0.16, getMeshDefaultOpacity(mesh) * 0.42));
+        const dimColor = new THREE.Color(getMeshBaseColor(mesh)).lerp(
+          new THREE.Color(0xdce3e8),
+          0.62
+        );
+
+        mesh.material.color.copy(dimColor);
+        mesh.material.emissive?.setHex?.(0x000000);
+        applyMaterialOpacity(mesh.material, Math.max(0.08, getMeshDefaultOpacity(mesh) * 0.24));
         mesh.renderOrder = mesh.userData?.baseRenderOrder ?? 2;
       });
     }
@@ -579,15 +621,47 @@ export class AtomContributionRenderer {
     return entries;
   }
 
-  createSelectedAtomContributionMeshes(group, selectedMesh) {
+  createEffectivePartHalo({ geometry, materialColor, clippingPlanes }) {
+    const haloMaterial = new THREE.MeshBasicMaterial({
+      color: materialColor,
+      transparent: true,
+      opacity: EFFECTIVE_HALO_OPACITY,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      clippingPlanes,
+      clipShadows: false
+    });
+    const haloMesh = new THREE.Mesh(geometry, haloMaterial);
+
+    haloMesh.scale.setScalar(EFFECTIVE_HALO_SCALE);
+    haloMesh.renderOrder = 29;
+    haloMesh.userData = {
+      includeInFrame: false,
+      atomContributionOverlay: true,
+      layer: "effectivePartHalo"
+    };
+
+    return {
+      haloMesh,
+      haloMaterial
+    };
+  }
+
+  showSelectedAtomEffectivePart(atomMesh, group) {
+    const selectedMesh = atomMesh;
     const particle = this.crystal?.particles?.[selectedMesh.userData?.particleIndex];
 
     if (!particle) {
-      return [];
+      return null;
     }
 
-    const geometry = new THREE.SphereGeometry(particle.radius, 36, 32);
-    const clippingPlanes = buildWorldClippingPlanes(
+    this.clearSelectedAtomEffectivePart();
+
+    const visualGroup = new THREE.Group();
+    const geometry = new THREE.SphereGeometry(particle.radius, 48, 40);
+    const clippingPlanes = buildCellClippingPlanes(
       this.crystal.cellFrame,
       this.attachTarget
     );
@@ -596,15 +670,17 @@ export class AtomContributionRenderer {
       transparent: true,
       opacity: GHOST_OPACITY,
       depthWrite: false,
-      shininess: 70
+      shininess: 45
     });
-    const effectiveColor = brightenColor(particle.color, 0.2);
+    const effectiveColor = makeEffectiveColor(particle.color);
     const effectiveMaterial = new THREE.MeshPhongMaterial({
       color: effectiveColor,
-      emissive: effectiveColor.clone().multiplyScalar(0.2),
+      emissive: effectiveColor.clone().multiplyScalar(0.54),
+      emissiveIntensity: 1.4,
       transparent: true,
       opacity: EFFECTIVE_OPACITY,
       depthWrite: false,
+      depthTest: true,
       shininess: 120,
       side: THREE.DoubleSide,
       clippingPlanes,
@@ -612,19 +688,35 @@ export class AtomContributionRenderer {
     });
     const ghostMesh = new THREE.Mesh(geometry, ghostMaterial);
     const effectiveMesh = new THREE.Mesh(geometry, effectiveMaterial);
+    const { haloMesh, haloMaterial } = this.createEffectivePartHalo({
+      geometry,
+      materialColor: effectiveColor,
+      clippingPlanes
+    });
     const position = getParticlePositionVector(particle);
     const metadata = {
       includeInFrame: false,
       atomContributionOverlay: true,
       groupId: group.id,
+      atomId: selectedMesh.userData.atomId,
+      species: selectedMesh.userData.species,
+      positionType: selectedMesh.userData.positionType,
+      contribution: selectedMesh.userData.contribution,
       contributionText: getContributionText(group),
       totalContribution: getTotalContribution(group)
     };
 
     ghostMesh.position.copy(position);
     effectiveMesh.position.copy(position);
-    ghostMesh.renderOrder = 21;
-    effectiveMesh.renderOrder = 22;
+    haloMesh.position.copy(position);
+    ghostMesh.renderOrder = 23;
+    effectiveMesh.renderOrder = 30;
+    visualGroup.name = `selected-effective-${selectedMesh.userData.atomId ?? "atom"}`;
+    visualGroup.userData = {
+      includeInFrame: false,
+      atomContributionOverlay: true,
+      atomContributionRole: "selectedEffectiveVisualGroup"
+    };
     ghostMesh.userData = {
       ...ghostMesh.userData,
       ...metadata,
@@ -635,24 +727,35 @@ export class AtomContributionRenderer {
       ...metadata,
       layer: "effectivePart"
     };
-    this.rootGroup.add(ghostMesh);
-    this.rootGroup.add(effectiveMesh);
+    haloMesh.userData = {
+      ...haloMesh.userData,
+      ...metadata,
+      layer: "effectivePartHalo"
+    };
+    visualGroup.add(ghostMesh);
+    visualGroup.add(haloMesh);
+    visualGroup.add(effectiveMesh);
+    this.rootGroup.add(visualGroup);
+    this.selectedEffectiveVisualGroup = visualGroup;
     this.overlayGeometries.add(geometry);
 
-    return [
-      this.addAnimatedObject(ghostMesh, {
-        dispose: () => {
-          geometry.dispose();
-          ghostMaterial.dispose();
-          this.overlayGeometries.delete(geometry);
-        }
-      }),
-      this.addAnimatedObject(effectiveMesh, {
-        dispose: () => {
-          effectiveMaterial.dispose();
-        }
-      })
-    ];
+    return this.addAnimatedObject(visualGroup, {
+      target: 1,
+      initial: 0,
+      dispose: () => {
+        geometry.dispose();
+        ghostMaterial.dispose();
+        effectiveMaterial.dispose();
+        haloMaterial.dispose();
+        this.overlayGeometries.delete(geometry);
+      }
+    });
+  }
+
+  createSelectedAtomContributionMeshes(group, selectedMesh) {
+    const effectiveEntry = this.showSelectedAtomEffectivePart(selectedMesh, group);
+
+    return effectiveEntry ? [effectiveEntry] : [];
   }
 
   selectAtom(mesh) {
@@ -753,8 +856,10 @@ export class AtomContributionRenderer {
 
     groupMeshes.forEach((mesh, index) => {
       const isSelected = mesh === this.selectedMesh;
-      const baseScale = isSelected ? 1.16 : 1.08;
-      const pulse = Math.sin(now * PULSE_SPEED + index * 0.55) * 0.025;
+      const baseScale = isSelected ? 1 : 1.04;
+      const pulse = isSelected
+        ? 0
+        : Math.sin(now * PULSE_SPEED + index * 0.55) * 0.018;
 
       mesh.scale.setScalar(baseScale + pulse);
     });
