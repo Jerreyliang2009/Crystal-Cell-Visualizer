@@ -647,7 +647,22 @@ button {
     brightness(0) saturate(100%)
     invert(13%) sepia(35%) saturate(1480%) hue-rotate(166deg) brightness(92%) contrast(94%)
     drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
-  transition: filter 0.2s ease;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition:
+    filter 0.2s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hero-author .openai-logo {
+    background: transparent;
+    box-shadow: none;
+    filter:
+      brightness(0) invert(1)
+      drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7))
+      drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+  }
 }
 
 html[data-theme="dark"] .hero-author .openai-logo,
@@ -655,10 +670,12 @@ body[data-theme="dark"] .hero-author .openai-logo,
 html.dark .hero-author .openai-logo,
 body.dark .hero-author .openai-logo,
 .theme-dark .hero-author .openai-logo {
+  background: transparent;
+  box-shadow: none;
   filter:
     brightness(0) invert(1)
-    drop-shadow(0 0 1px rgba(0, 0, 0, 0.85))
-    drop-shadow(0 0 2px rgba(0, 0, 0, 0.36));
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
 }
 
 .section-head {
