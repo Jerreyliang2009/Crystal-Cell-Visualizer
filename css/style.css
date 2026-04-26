@@ -106,15 +106,15 @@ button {
   left: 0;
   top: 0;
   z-index: 7;
-  max-width: min(230px, calc(100vw - 32px));
-  padding: 7px 9px;
+  max-width: min(205px, calc(100vw - 32px));
+  padding: 5px 7px;
   border: 1px solid rgba(207, 230, 244, 0.3);
-  border-radius: 9px;
-  background: rgba(18, 35, 50, 0.78);
+  border-radius: 7px;
+  background: rgba(18, 35, 50, 0.62);
   color: rgba(247, 252, 255, 0.96);
-  box-shadow: 0 10px 24px rgba(12, 24, 34, 0.22);
-  font-size: 0.78rem;
-  line-height: 1.35;
+  box-shadow: 0 7px 18px rgba(12, 24, 34, 0.2);
+  font-size: 0.72rem;
+  line-height: 1.25;
   pointer-events: none;
   backdrop-filter: blur(8px);
   will-change: transform;
@@ -130,18 +130,18 @@ button {
 }
 
 .atom-coordinate-value {
-  margin-top: 2px;
+  margin-top: 1px;
   overflow-wrap: anywhere;
 }
 
 .atom-coordinate-mark {
   display: inline-block;
-  margin-left: 6px;
-  padding: 1px 5px;
+  margin-left: 4px;
+  padding: 1px 4px;
   border-radius: 999px;
   background: rgba(116, 185, 226, 0.24);
   color: rgba(230, 246, 255, 0.96);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 700;
 }
 
@@ -523,10 +523,12 @@ button {
 .control-panel {
   z-index: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  padding: 15px 17px;
+  border-radius: 16px;
 }
 
 .app-header {
@@ -583,6 +585,17 @@ button {
 .knowledge-rule-note {
   margin: 8px 0 0;
   color: var(--text-muted);
+}
+
+.control-panel .section-head h2 {
+  font-size: 1.1rem;
+  line-height: 1.25;
+}
+
+.selector-card h3 {
+  margin-bottom: 10px;
+  font-size: 1.06rem;
+  line-height: 1.25;
 }
 
 .hero-author {
@@ -684,9 +697,9 @@ body.dark .hero-author .openai-logo,
 
 .selector-card,
 .info-card {
-  padding: 14px;
+  padding: 12px 14px;
   border: 1px solid #d9e5ed;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--card-bg-strong);
 }
 
@@ -709,7 +722,7 @@ body.dark .hero-author .openai-logo,
 .control-select {
   position: relative;
   z-index: 30;
-  padding: 12px 14px;
+  padding: 11px 13px;
   background: #ffffff;
   appearance: auto;
   cursor: pointer;
@@ -722,19 +735,19 @@ body.dark .hero-author .openai-logo,
   outline-offset: 2px;
 }
 
-.control-hint {
-  margin: 10px 0 0;
-  color: var(--text-muted);
-  font-size: 0.94rem;
-}
-
 .control-group {
   display: grid;
   gap: 10px;
 }
 
+.control-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .control-button {
-  padding: 12px 14px;
+  padding: 11px 13px;
   text-align: left;
   cursor: pointer;
   transition: background-color 0.2s ease, border-color 0.2s ease;
@@ -757,57 +770,6 @@ body.dark .hero-author .openai-logo,
   color: #8091a0;
   cursor: not-allowed;
   opacity: 0.82;
-}
-
-.coordination-selection-info {
-  margin-top: 4px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(203, 217, 227, 0.92);
-  display: grid;
-  gap: 8px;
-  font-size: 0.9rem;
-}
-
-.coordination-info-kicker,
-.coordination-info-note {
-  margin: 0;
-}
-
-.coordination-info-kicker {
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.coordination-info-list {
-  margin: 0;
-  display: grid;
-  gap: 5px;
-}
-
-.coordination-info-list div {
-  display: grid;
-  grid-template-columns: minmax(64px, 0.34fr) 1fr;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.coordination-info-list dt {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.coordination-info-list dd {
-  margin: 0;
-  color: var(--text-main);
-  font-weight: 700;
-}
-
-.coordination-info-note {
-  color: var(--text-muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
 }
 
 .info-list {

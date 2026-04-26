@@ -1,4 +1,8 @@
-import * as THREE from "three";
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
 
 const HALO_COLOR = 0x4db6ff;
 const HALO_OPACITY = 0.34;
@@ -302,7 +306,7 @@ function createCoordinateHalo(mesh) {
   return halo;
 }
 
-export class AtomCoordinateOverlay {
+class AtomCoordinateOverlay {
   constructor({ attachTarget, labelContainer, camera }) {
     this.attachTarget = attachTarget;
     this.labelContainer = labelContainer;
@@ -437,3 +441,7 @@ export class AtomCoordinateOverlay {
     )}px, ${Math.round(y + LABEL_OFFSET_Y)}px)`;
   }
 }
+
+namespace.AtomCoordinateOverlay = AtomCoordinateOverlay;
+window.CrystalCellVisualizer = namespace;
+})(window);

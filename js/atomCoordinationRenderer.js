@@ -1,4 +1,8 @@
-import * as THREE from "three";
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
 
 const FADE_MS = 260;
 const CENTER_COLOR = 0xf2a85b;
@@ -382,7 +386,7 @@ function createCoordinationShell(neighborRecords) {
   return mesh;
 }
 
-export class AtomCoordinationRenderer {
+class AtomCoordinationRenderer {
   constructor({ attachTarget }) {
     this.attachTarget = attachTarget;
     this.rootGroup = null;
@@ -894,3 +898,7 @@ export class AtomCoordinationRenderer {
     });
   }
 }
+
+namespace.AtomCoordinationRenderer = AtomCoordinationRenderer;
+window.CrystalCellVisualizer = namespace;
+})(window);

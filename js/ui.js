@@ -1,5 +1,9 @@
+(function (window, document) {
+  "use strict";
+
+const namespace = window.CrystalCellVisualizer || {};
+
 const statusElement = document.getElementById("panel-status");
-const crystalSummaryElement = document.getElementById("crystal-summary");
 const floatingPanel = document.getElementById("floating-ui");
 const floatingPanelBody = document.getElementById("floating-ui-body");
 const knowledgeStack = document.getElementById("knowledge-stack");
@@ -1594,19 +1598,13 @@ function applyPanelLayoutState(state) {
   requestFloatingPanelLayoutResync();
 }
 
-export function setPanelStatus(message) {
+function setPanelStatus(message) {
   if (statusElement) {
     statusElement.textContent = message;
   }
 }
 
-export function setCrystalSummary(message) {
-  if (crystalSummaryElement) {
-    crystalSummaryElement.textContent = message;
-  }
-}
-
-export function setCountingPanelVisibility(isVisible) {
+function setCountingPanelVisibility(isVisible) {
   if (!countingPanel) {
     return;
   }
@@ -1627,7 +1625,7 @@ export function setCountingPanelVisibility(isVisible) {
   requestFloatingPanelLayoutResync();
 }
 
-export function renderCountingPanel(crystal, renderState = {}) {
+function renderCountingPanel(crystal, renderState = {}) {
   if (!countingContentElement) {
     return;
   }
@@ -1636,7 +1634,7 @@ export function renderCountingPanel(crystal, renderState = {}) {
   requestFloatingPanelLayoutResync();
 }
 
-export function renderAtomLegend(crystal) {
+function renderAtomLegend(crystal) {
   if (!atomLegendPanel || !atomLegendContentElement) {
     return;
   }
@@ -1708,7 +1706,7 @@ function renderSelectOptions(selectElement, options, selectedId) {
     .join("");
 }
 
-export function setupUI({
+function setupUI({
   crystalOptions,
   viewOptions,
   initialState,
@@ -1717,6 +1715,7 @@ export function setupUI({
   onViewLockChange,
   onAutoRotateChange,
   onShowCellAxesChange,
+  onShowCoordinateCardChange,
   onShowAuxiliaryChange,
   onShowCoordinationChange,
   onShowCountChange,
@@ -1729,6 +1728,7 @@ export function setupUI({
   const autoRotateButton = document.getElementById("btn-auto-rotate");
   const cellAxesButton = document.getElementById("btn-show-cell-axes");
   const coordinationButton = document.getElementById("btn-show-coordination");
+  const coordinateCardButton = document.getElementById("btn-show-coordinate-card");
   const auxiliaryButton = document.getElementById("btn-show-auxiliary");
   const countButton = document.getElementById("btn-show-count");
   const storedPanelLayout = readStoredPanelLayout();
@@ -1740,6 +1740,7 @@ export function setupUI({
     viewLocked: Boolean(initialState?.viewLocked),
     autoRotate: Boolean(initialState?.autoRotate),
     showCellAxes: Boolean(initialState?.showCellAxes),
+    showCoordinateCard: initialState?.showCoordinateCard !== false,
     showAuxiliary: Boolean(initialState?.showAuxiliary),
     showCoordination: Boolean(initialState?.showCoordination),
     showCount: Boolean(initialState?.showCount),
@@ -1762,6 +1763,7 @@ export function setupUI({
   updateButtonState(viewLockButton, state.viewLocked);
   updateButtonState(autoRotateButton, state.autoRotate);
   updateButtonState(cellAxesButton, state.showCellAxes);
+  updateButtonState(coordinateCardButton, state.showCoordinateCard);
   updateButtonState(auxiliaryButton, state.showAuxiliary);
   updateButtonState(coordinationButton, state.showCoordination);
   updateButtonState(countButton, state.showCount);
@@ -1824,12 +1826,23 @@ export function setupUI({
   function setShowCellAxes(nextValue) {
     state.showCellAxes = Boolean(nextValue);
     updateButtonState(cellAxesButton, state.showCellAxes);
+
+    if (!state.showCellAxes) {
+      setShowCoordinateCard(false);
+    }
+
+    setButtonAvailability(coordinateCardButton, state.showCellAxes);
   }
 
   function setShowCoordination(nextValue) {
     state.showCoordination = Boolean(nextValue);
     updateButtonState(coordinationButton, state.showCoordination);
     requestFloatingPanelLayoutResync();
+  }
+
+  function setShowCoordinateCard(nextValue) {
+    state.showCoordinateCard = Boolean(nextValue);
+    updateButtonState(coordinateCardButton, state.showCoordinateCard);
   }
 
   function setShowAuxiliary(nextValue) {
@@ -2011,6 +2024,15 @@ export function setupUI({
     onShowCoordinationChange?.(state.showCoordination);
   });
 
+  coordinateCardButton?.addEventListener("click", () => {
+    if (coordinateCardButton.disabled) {
+      return;
+    }
+
+    setShowCoordinateCard(!state.showCoordinateCard);
+    onShowCoordinateCardChange?.(state.showCoordinateCard);
+  });
+
   countButton?.addEventListener("click", () => {
     if (countButton.disabled) {
       return;
@@ -2086,6 +2108,13 @@ export function setupUI({
     setAuxiliaryAvailability(isEnabled) {
       setButtonAvailability(auxiliaryButton, isEnabled);
     },
+    setCoordinateCardAvailability(isEnabled) {
+      if (!isEnabled) {
+        setShowCoordinateCard(false);
+      }
+
+      setButtonAvailability(coordinateCardButton, isEnabled);
+    },
     setCoordinationAvailability(isEnabled) {
       if (!isEnabled) {
         setShowCoordination(false);
@@ -2104,6 +2133,7 @@ export function setupUI({
     setCountGroupOptions,
     setSelectedCountGroup,
     setShowCellAxes,
+    setShowCoordinateCard,
     setShowAuxiliary,
     setShowCoordination,
     setShowCount,
@@ -2111,3 +2141,14 @@ export function setupUI({
     setPanelSide
   };
 }
+
+Object.assign(namespace, {
+  renderCountingPanel,
+  renderAtomLegend,
+  setCountingPanelVisibility,
+  setPanelStatus,
+  setupUI
+});
+
+window.CrystalCellVisualizer = namespace;
+})(window, document);

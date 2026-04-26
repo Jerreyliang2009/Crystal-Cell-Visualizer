@@ -1,4 +1,8 @@
-import * as THREE from "three";
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
 
 const GHOST_OPACITY = 0.18;
 const EFFECTIVE_OPACITY = 0.9;
@@ -163,7 +167,7 @@ function getParticlePositionVector(particle) {
   );
 }
 
-export function collectEffectiveAtomParticleIndices(crystal) {
+function collectEffectiveAtomParticleIndices(crystal) {
   const indexSet = new Set();
 
   (crystal?.effectiveAtomCounting?.groups ?? []).forEach((group) => {
@@ -177,7 +181,7 @@ export function collectEffectiveAtomParticleIndices(crystal) {
   return indexSet;
 }
 
-export class EffectiveAtomRenderer {
+class EffectiveAtomRenderer {
   constructor({ attachTarget }) {
     this.attachTarget = attachTarget;
     this.crystal = null;
@@ -461,3 +465,11 @@ export class EffectiveAtomRenderer {
     });
   }
 }
+
+Object.assign(namespace, {
+  collectEffectiveAtomParticleIndices,
+  EffectiveAtomRenderer
+});
+
+window.CrystalCellVisualizer = namespace;
+})(window);

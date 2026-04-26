@@ -1,10 +1,14 @@
-import * as THREE from "three";
-import {
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
+const {
   createAtomContributionLabel,
   createFormulaLabel,
   createHoverHintLabel,
   disposeLabelSprite
-} from "./atomContributionLabels.js";
+} = namespace;
 
 const FADE_MS = 260;
 const GHOST_OPACITY = 0.12;
@@ -214,7 +218,7 @@ function getTotalContribution(group) {
   return group?.totalContribution ?? group?.total ?? 0;
 }
 
-export class AtomContributionRenderer {
+class AtomContributionRenderer {
   constructor({ attachTarget }) {
     this.attachTarget = attachTarget;
     this.rootGroup = null;
@@ -865,3 +869,7 @@ export class AtomContributionRenderer {
     });
   }
 }
+
+namespace.AtomContributionRenderer = AtomContributionRenderer;
+window.CrystalCellVisualizer = namespace;
+})(window);

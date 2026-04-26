@@ -1,8 +1,12 @@
-import * as THREE from "three";
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
 
 const CLICK_MOVE_TOLERANCE = 5;
 
-export class AtomContributionInteraction {
+class AtomContributionInteraction {
   constructor({
     domElement,
     camera,
@@ -145,3 +149,7 @@ export class AtomContributionInteraction {
     this.onClearSelection?.();
   }
 }
+
+namespace.AtomContributionInteraction = AtomContributionInteraction;
+window.CrystalCellVisualizer = namespace;
+})(window);

@@ -1,4 +1,8 @@
-import * as THREE from "three";
+(function (window) {
+  "use strict";
+
+const THREE = window.THREE;
+const namespace = window.CrystalCellVisualizer || {};
 
 const LABEL_FONT =
   '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif';
@@ -142,7 +146,7 @@ function createLabelSprite(text, options = {}) {
   return sprite;
 }
 
-export function createAtomContributionLabel({ text, color }) {
+function createAtomContributionLabel({ text, color }) {
   const baseColor = new THREE.Color(color ?? 0x2d77a8);
   const accentColor = `rgba(${Math.round(baseColor.r * 255)}, ${Math.round(
     baseColor.g * 255
@@ -161,7 +165,7 @@ export function createAtomContributionLabel({ text, color }) {
   });
 }
 
-export function createFormulaLabel({ text, color }) {
+function createFormulaLabel({ text, color }) {
   return createLabelSprite(text, {
     fontSize: 44,
     fontWeight: 800,
@@ -177,7 +181,7 @@ export function createFormulaLabel({ text, color }) {
   });
 }
 
-export function createHoverHintLabel({ text, color }) {
+function createHoverHintLabel({ text, color }) {
   return createLabelSprite(text, {
     fontSize: 36,
     fontWeight: 760,
@@ -193,7 +197,7 @@ export function createHoverHintLabel({ text, color }) {
   });
 }
 
-export function disposeLabelSprite(sprite) {
+function disposeLabelSprite(sprite) {
   if (!sprite) {
     return;
   }
@@ -211,3 +215,13 @@ export function disposeLabelSprite(sprite) {
   material?.map?.dispose?.();
   material?.dispose?.();
 }
+
+Object.assign(namespace, {
+  createAtomContributionLabel,
+  createFormulaLabel,
+  createHoverHintLabel,
+  disposeLabelSprite
+});
+
+window.CrystalCellVisualizer = namespace;
+})(window);

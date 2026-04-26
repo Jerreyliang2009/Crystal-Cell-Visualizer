@@ -1,18 +1,53 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <script>
+    (function () {
+      if (window.location.protocol !== "file:") {
+        return;
+      }
+
+      var onlineUrl = "https://jerreyliang2009.github.io/Crystal-Cell-Visualizer/";
+      var checkScript = document.createElement("script");
+      var finished = false;
+      var timeoutId = window.setTimeout(function () {
+        finished = true;
+        checkScript.onload = null;
+        checkScript.onerror = null;
+        checkScript.remove();
+      }, 5000);
+
+      checkScript.onload = function () {
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+        window.clearTimeout(timeoutId);
+
+        if (window.__CRYSTAL_CELL_VISUALIZER_ONLINE_OK__ === true) {
+          window.location.replace(onlineUrl);
+        }
+      };
+
+      checkScript.onerror = function () {
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+        window.clearTimeout(timeoutId);
+        checkScript.remove();
+      };
+
+      checkScript.src = onlineUrl + "online-check.js?t=" + Date.now();
+      document.head.appendChild(checkScript);
+    })();
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>高中化学晶胞结构可视化</title>
   <link rel="stylesheet" href="./css/style.css?v=openai-logo-polish-4">
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/"
-      }
-    }
-  </script>
 </head>
 <body>
   <div class="app-shell">
@@ -49,7 +84,7 @@
               alt="Jerrey_liang 头像"
             >
             <div class="hero-author-text">
-              <p class="hero-author-line">Power By Jerrey_liang</p>
+              <p class="hero-author-line">Powered By Jerrey_liang</p>
               <p class="hero-coding-line">
                 <img
                   class="openai-logo"
@@ -66,50 +101,64 @@
         <section class="control-panel" aria-labelledby="control-title">
           <div class="section-head">
             <h2 id="control-title">控制面板</h2>
-            <p>支持晶胞切换、自动旋转、配位显示、辅助原子显示与模型内贡献标注。</p>
           </div>
 
           <section class="selector-card" aria-labelledby="selector-title">
             <h3 id="selector-title">晶胞选择</h3>
-            <label class="control-label" for="crystal-select">选择当前晶胞</label>
             <select
               id="crystal-select"
               class="control-select"
               aria-label="晶胞选择"
             ></select>
-            <p id="crystal-summary" class="control-hint">准备加载晶胞数据...</p>
           </section>
 
           <section class="selector-card" aria-labelledby="view-title">
             <h3 id="view-title">标准视角</h3>
-            <label class="control-label" for="view-select">选择标准视角</label>
             <select
               id="view-select"
               class="control-select"
               aria-label="标准视角选择"
             ></select>
-            <p class="control-hint">
-              “默认展示视角”会按当前晶胞加载推荐角度；锁定视角后禁用拖拽旋转，但仍保留缩放。
-            </p>
           </section>
 
           <div class="control-group">
-            <button id="btn-view-lock" class="control-button" type="button">
-              锁定视角
-            </button>
-            <button id="btn-auto-rotate" class="control-button" type="button">
-              自动旋转
+            <div class="control-row">
+              <button id="btn-view-lock" class="control-button" type="button">
+                锁定视角
+              </button>
+              <button id="btn-auto-rotate" class="control-button" type="button">
+                自动旋转
+              </button>
+            </div>
+            <div class="control-row">
+              <button
+                id="btn-show-coordination"
+                class="control-button"
+                type="button"
+                disabled
+              >
+                显示配位
+              </button>
+              <button
+                id="btn-show-count"
+                class="control-button"
+                type="button"
+                aria-label="切换模型内原子贡献标注"
+                disabled
+              >
+                原子贡献标注
+              </button>
+            </div>
+            <button
+              id="btn-show-coordinate-card"
+              class="control-button"
+              type="button"
+              aria-label="切换点击原子时的位置信息卡片"
+            >
+              原子位置卡片
             </button>
             <button id="btn-show-cell-axes" class="control-button" type="button">
               晶胞内坐标轴
-            </button>
-            <button
-              id="btn-show-coordination"
-              class="control-button"
-              type="button"
-              disabled
-            >
-              显示配位
             </button>
             <button
               id="btn-show-auxiliary"
@@ -119,22 +168,7 @@
             >
               显示辅助原子
             </button>
-            <button
-              id="btn-show-count"
-              class="control-button"
-              type="button"
-              aria-label="切换模型内原子贡献标注"
-              disabled
-            >
-              原子贡献标注
-            </button>
           </div>
-          <div
-            id="coordination-selection-info"
-            class="coordination-selection-info"
-            aria-live="polite"
-            hidden
-          ></div>
         </section>
       </div>
 
@@ -179,6 +213,17 @@
     </aside>
   </div>
 
-  <script type="module" src="./js/main.js"></script>
+  <script src="./vendor/three/three.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';"></script>
+  <script src="./vendor/three/OrbitControls.js"></script>
+  <script src="./js/resourcePaths.js"></script>
+  <script src="./js/atomContributionLabels.js"></script>
+  <script src="./js/atomContributionInteraction.js"></script>
+  <script src="./js/effectiveAtomRenderer.js"></script>
+  <script src="./js/atomContributionRenderer.js"></script>
+  <script src="./js/atomCoordinateOverlay.js"></script>
+  <script src="./js/atomCoordinationRenderer.js"></script>
+  <script src="./js/crystalData.js"></script>
+  <script src="./js/ui.js"></script>
+  <script src="./js/main.js"></script>
 </body>
 </html>

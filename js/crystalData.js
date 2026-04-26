@@ -1,4 +1,9 @@
-﻿const defaultBoxFrame = {
+(function (window) {
+  "use strict";
+
+const namespace = window.CrystalCellVisualizer || {};
+
+const defaultBoxFrame = {
   shape: "box",
   size: { x: 2, y: 2, z: 2 },
   edgeColor: 0x1f4f74,
@@ -142,7 +147,7 @@ function createHcpCellGeometry() {
 
 const hcpCellGeometry = createHcpCellGeometry();
 
-export const axisConvention = {
+const axisConvention = {
   id: "crystal-standard-xyz",
   label: "统一晶胞科学坐标",
   summary:
@@ -177,7 +182,7 @@ export const axisConvention = {
   }
 };
 
-export const standardViewDirections = {
+const standardViewDirections = {
   default: {
     id: "default",
     label: "默认展示视角",
@@ -1826,7 +1831,7 @@ const fccCrystalData = createFccCrystalData();
 const bccCrystalData = createBccCrystalData();
 const hcpCrystalData = createHcpCrystalData();
 
-export const projectMeta = {
+const projectMeta = {
   title: "晶胞结构可视化",
   stage: "多晶胞结构、配位与有效原子示意展示",
   audience: "高中化学学习与比赛展示",
@@ -1835,7 +1840,7 @@ export const projectMeta = {
   standardViewDirections
 };
 
-export const crystalCatalog = [
+const crystalCatalog = [
   createCrystalEntry({
     id: "test-cube",
     name: "测试立方体",
@@ -2393,11 +2398,11 @@ export const crystalCatalog = [
   })
 ];
 
-export function getDefaultCrystalId() {
+function getDefaultCrystalId() {
   return projectMeta.defaultCrystalId;
 }
 
-export function getCrystalOptions() {
+function getCrystalOptions() {
   return crystalCatalog
     .filter((crystal) => crystal.showInSelector !== false)
     .map((crystal) => ({
@@ -2406,18 +2411,18 @@ export function getCrystalOptions() {
     }));
 }
 
-export function getStandardViewOptions() {
+function getStandardViewOptions() {
   return Object.values(standardViewDirections).map((view) => ({
     id: view.id,
     label: view.label
   }));
 }
 
-export function getCrystalById(id) {
+function getCrystalById(id) {
   return crystalCatalog.find((crystal) => crystal.id === id) ?? crystalCatalog[0];
 }
 
-export function getBuildStatusLabel(status) {
+function getBuildStatusLabel(status) {
   const statusMap = {
     demo: "测试模型",
     ready: "可展示",
@@ -2426,3 +2431,26 @@ export function getBuildStatusLabel(status) {
 
   return statusMap[status] ?? "未知状态";
 }
+
+const crystals = crystalCatalog.reduce((result, crystal) => {
+  result[crystal.id] = crystal;
+  return result;
+}, {});
+
+window.CrystalCellData = window.CrystalCellData || {};
+Object.assign(window.CrystalCellData, {
+  axisConvention,
+  standardViewDirections,
+  projectMeta,
+  crystalCatalog,
+  crystals,
+  getDefaultCrystalId,
+  getCrystalOptions,
+  getStandardViewOptions,
+  getCrystalById,
+  getBuildStatusLabel
+});
+
+Object.assign(namespace, window.CrystalCellData);
+window.CrystalCellVisualizer = namespace;
+})(window);
